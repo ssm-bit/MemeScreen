@@ -1,0 +1,28 @@
+# installed packages (each person runs npm install)
+node_modules/
+memescreen/node_modules/
+memescreen/server/node_modules/
+memescreen-phone/
+
+# build output
+memescreen/dist/
+memescreen/src-tauri/target/
+
+# per-person Expo and tunnel files
+.expo/
+.expo-homes/
+expo-accounts.json
+cloudflared.exe
+tunnel.log
+hosted-url.txt
+
+# secrets and local config
+.env
+*.env
+memescreen/server/.env
+
+# OS and editor junk
+.DS_Store
+Thumbs.db
+.vscode/
+*.log

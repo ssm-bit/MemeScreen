@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MemeScreen · Phone</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<style>
+  :root{--bg:#07090C;--panel:#14161C;--raised:#1A1D25;--border:#242830;--t1:#E4E6EB;--t2:#8A8F9C;--t3:#565B67;--accent:#3B82F6;--brand:#22E4A0;--w:393px;--h:852px;--scale:1;--rad:58px;--srad:46px;--sb:50px}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:radial-gradient(900px 600px at 50% 0,rgba(59,130,246,.12),transparent 70%),var(--bg);color:var(--t1);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif}
+  button{font:inherit;color:inherit;cursor:pointer}
+
+  /* the phone is pinned to the exact centre of the window and scaled to fit — nothing else can push it around */
+  .phone{position:fixed;left:50%;top:50%;width:calc(var(--w) + 24px);height:calc(var(--h) + 24px);transform:translate(-50%,-50%) scale(var(--scale));transform-origin:center;padding:12px;border-radius:var(--rad);background:linear-gradient(145deg,#2b2f38,#0e1014 45%,#23262e);box-shadow:0 0 0 2px #3a3f4a,0 40px 90px rgba(0,0,0,.65),inset 0 0 0 2px #000}
+  .phone::before,.phone::after{content:"";position:absolute;width:4px;border-radius:2px;background:#2b2f38}
+  .phone::before{left:-4px;top:150px;height:34px;box-shadow:0 60px 0 #2b2f38,0 115px 0 #2b2f38}
+  .phone::after{right:-4px;top:210px;height:90px}
+  .screen{position:relative;width:100%;height:100%;border-radius:var(--srad);overflow:clip;background:#000;isolation:isolate}
+  .wall{position:absolute;inset:0;background:radial-gradient(120% 70% at 20% 0,#1d3b6e 0,transparent 60%),radial-gradient(90% 60% at 100% 40%,#0f5a4a 0,transparent 60%),radial-gradient(100% 70% at 30% 100%,#3a1d5c 0,transparent 60%),#0a0d14}
+
+  .statusbar{position:absolute;top:0;left:0;right:0;height:var(--sb);z-index:50;display:flex;align-items:flex-end;justify-content:space-between;padding:0 30px 8px;font-weight:600;font-size:15px;letter-spacing:-.01em;background:transparent;border:0;width:100%;text-align:left}
+  .island{position:absolute;top:11px;left:50%;transform:translateX(-50%);width:118px;height:33px;border-radius:20px;background:#000}
+  .sb-r{display:flex;align-items:center;gap:6px}.sb-r svg{display:block}
+  .homebar{position:absolute;left:0;right:0;bottom:0;height:24px;z-index:50;display:flex;align-items:center;justify-content:center;background:transparent;border:0;width:100%;padding:0}
+  .homebar i{width:136px;height:5px;border-radius:3px;background:#E4E6EB;opacity:.85;transition:transform .15s}
+  .homebar:hover i{transform:scaleX(1.08)}
+
+  /* home screen */
+  .home{position:absolute;inset:0;padding:calc(var(--sb) + 26px) 22px 0;display:flex;flex-direction:column;transition:transform .35s cubic-bezier(.2,.8,.2,1),opacity .3s,filter .3s}
+  .screen.app-open .home{transform:scale(.92);opacity:0;filter:blur(6px);pointer-events:none}
+  .widget{border-radius:22px;padding:14px 16px;background:rgba(20,22,28,.55);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,.08);margin-bottom:22px}
+  .widget small{display:block;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:rgba(255,255,255,.55)}
+  .widget b{font-size:30px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .widget span{display:block;font-size:13px;color:rgba(255,255,255,.7)}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:22px 10px}
+  .app{display:flex;flex-direction:column;align-items:center;gap:6px;background:none;border:0;padding:0;font-size:11px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.5)}
+  .ico{position:relative;width:60px;height:60px;border-radius:15px;display:grid;place-items:center;box-shadow:0 6px 14px rgba(0,0,0,.35);transition:transform .12s}
+  .app:active .ico{transform:scale(.92)}
+  .ico svg{width:30px;height:30px;color:#fff}
+  .ico.ms{background:#0A0D12;box-shadow:0 0 0 1px rgba(34,228,160,.35),0 6px 18px rgba(34,228,160,.18)}.ico.ms img{width:60px;height:60px;border-radius:15px}
+  .app.fake .ico{filter:saturate(.35) brightness(.8)}
+  .badge{position:absolute;top:-6px;right:-6px;min-width:22px;height:22px;padding:0 6px;border-radius:11px;background:#FF3B30;color:#fff;font:600 13px/22px system-ui;text-align:center;text-shadow:none;display:none}
+  .badge.on{display:block}
+  .dock{margin:auto 0 34px;padding:14px;border-radius:30px;display:grid;grid-template-columns:repeat(4,1fr);gap:10px;background:rgba(255,255,255,.12);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)}
+  .dock .app>span:last-child{display:none}
+  .hint-tap{position:absolute;left:0;right:0;bottom:150px;text-align:center;font-size:12px;color:rgba(255,255,255,.75);pointer-events:none;animation:pulse 2.4s ease-in-out infinite}
+  @keyframes pulse{50%{opacity:.35}}
+
+  /* the running app */
+  .appwin{position:absolute;inset:0;z-index:20;display:flex;flex-direction:column;background:#14161C;transform-origin:16% 34%;transform:scale(.12);opacity:0;visibility:hidden;border-radius:60px;overflow:hidden;transition:transform .38s cubic-bezier(.2,.85,.25,1),opacity .25s,border-radius .38s,visibility 0s .38s}
+  .screen.app-open .appwin{transform:none;opacity:1;visibility:visible;border-radius:0;transition:transform .38s cubic-bezier(.2,.85,.25,1),opacity .2s,border-radius .38s}
+  .appwin .top{flex:none;height:var(--sb);background:#14161C}.appwin .bot{flex:none;height:24px;background:rgb(16,18,24)}
+  iframe{flex:1;width:100%;min-height:0;border:0;display:block;background:#0C0E12}
+
+  /* OS notification banner + notification centre */
+  .banner{position:absolute;left:8px;right:8px;top:calc(var(--sb) + 2px);z-index:60;display:grid;grid-template-columns:38px 1fr;gap:10px;align-items:center;text-align:left;padding:12px 14px;border-radius:22px;border:0;background:rgba(38,41,50,.82);backdrop-filter:blur(24px) saturate(1.6);-webkit-backdrop-filter:blur(24px) saturate(1.6);box-shadow:0 12px 34px rgba(0,0,0,.45);transform:translateY(-160%);transition:transform .45s cubic-bezier(.2,.9,.25,1)}
+  .banner.show{transform:none}
+  .banner img{width:38px;height:38px;border-radius:9px}
+  .banner .l1{display:flex;justify-content:space-between;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:rgba(255,255,255,.55)}
+  .banner b{display:block;font-size:14px}.banner p{margin:0;font-size:13px;line-height:1.35;color:rgba(255,255,255,.85)}
+  .nc{position:absolute;inset:0;z-index:55;padding:calc(var(--sb) + 18px) 12px 40px;background:rgba(8,10,14,.72);backdrop-filter:blur(26px);-webkit-backdrop-filter:blur(26px);transform:translateY(-101%);transition:transform .4s cubic-bezier(.2,.85,.25,1);overflow-y:auto}
+  .nc.show{transform:none}
+  .nc h3{margin:0 8px 12px;font-size:22px;display:flex;justify-content:space-between;align-items:center}.nc h3 button{font-size:12px;font-weight:500;background:rgba(255,255,255,.12);border:0;border-radius:12px;padding:4px 10px}
+  .nc .item{display:grid;grid-template-columns:34px 1fr;gap:10px;width:100%;text-align:left;border:0;padding:11px 12px;border-radius:18px;background:rgba(38,41,50,.85);margin-bottom:8px}
+  .nc .item img{width:34px;height:34px;border-radius:8px}.nc .item b{font-size:13px}.nc .item p{margin:0;font-size:13px;color:rgba(255,255,255,.8)}.nc .item time{float:right;font-size:11px;color:rgba(255,255,255,.5)}
+  .nc .none{text-align:center;color:rgba(255,255,255,.5);margin-top:40px}
+
+  body.android{--rad:40px;--srad:30px;--sb:40px}
+  .android .island{width:14px;height:14px;top:14px}.android .statusbar{padding:0 22px 8px;font-weight:500;font-size:14px}
+  .android .homebar i{width:100px;height:4px;opacity:.6}
+
+  /* control panel — floats at the right edge, never affects where the phone sits */
+  .panel{position:fixed;right:18px;top:50%;transform:translateY(-50%);width:292px;max-height:calc(100vh - 36px);overflow-y:auto;background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:18px;z-index:5;transition:transform .25s,opacity .2s}
+  .panel.closed{transform:translate(calc(100% + 30px),-50%);opacity:0;pointer-events:none}
+  .ptoggle{position:fixed;right:18px;top:18px;z-index:6;width:38px;height:38px;border-radius:10px;border:1px solid var(--border);background:var(--panel);display:grid;place-items:center}
+  .ptoggle svg{width:18px;height:18px}
+  .logo{display:flex;align-items:center;gap:8px;font-weight:600;font-size:17px;margin-bottom:2px}.logo span{color:var(--accent)}
+  h2{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--t3);margin:18px 0 8px;font-weight:600}
+  p{color:var(--t2);margin:0 0 8px;font-size:13px}
+  .devs{display:grid;gap:6px}.devs.two{grid-template-columns:1fr 1fr}
+  .panel button,.panel a.btn{font-size:13px;text-align:left;border:1px solid var(--border);background:var(--raised);color:var(--t1);border-radius:8px;padding:8px 11px;text-decoration:none;display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .panel button:hover,.panel a.btn:hover{border-color:var(--t3)}.panel button.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+  .panel button small{color:var(--t3);font-variant-numeric:tabular-nums}
+  .panel button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;justify-content:center}
+  .state{font-size:12px;padding:8px 10px;border-radius:8px;background:#0C0E12;border:1px solid var(--border);color:var(--t2);margin-bottom:8px}
+  .state b{color:var(--t1);font-weight:600}.ok{color:var(--brand)!important}.warn{color:#F5C542!important}
+  @media(max-width:1060px){.panel{top:66px;transform:none;max-height:calc(100vh - 84px)}.panel.closed{transform:translateX(calc(100% + 30px))}}
+  @media(prefers-reduced-motion:reduce){.appwin,.home,.banner,.nc{transition:none!important}.hint-tap{animation:none}}
+</style>
+</head>
+<body>
+  <div class="phone" id="phone">
+    <div class="screen" id="screen">
+      <div class="wall"></div>
+
+      <button class="statusbar" id="statusbar" title="Notifications" aria-label="Open notifications"><span id="clock">9:41</span><div class="island"></div>
+        <span class="sb-r">
+          <svg width="18" height="12" viewBox="0 0 18 12" fill="#E4E6EB"><rect x="0" y="8" width="3" height="4" rx="1"/><rect x="5" y="5.5" width="3" height="6.5" rx="1"/><rect x="10" y="3" width="3" height="9" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1"/></svg>
+          <svg width="17" height="12" viewBox="0 0 17 12" fill="none" stroke="#E4E6EB" stroke-width="1.8" stroke-linecap="round"><path d="M1.5 4.2a10 10 0 0 1 14 0M4 6.9a6.4 6.4 0 0 1 9 0"/><circle cx="8.5" cy="10" r="1.2" fill="#E4E6EB" stroke="none"/></svg>
+          <svg width="27" height="13" viewBox="0 0 27 13" fill="none"><rect x=".5" y=".5" width="23" height="12" rx="3.5" stroke="#E4E6EB" opacity=".45"/><rect x="2" y="2" width="18" height="9" rx="2" fill="#E4E6EB"/><rect x="25" y="4" width="2" height="5" rx="1" fill="#E4E6EB" opacity=".5"/></svg>
+        </span>
+      </button>
+
+      <!-- HOME SCREEN -->
+      <div class="home" id="home">
+        <div class="widget"><small id="w-day">Wednesday</small><b id="w-time">9:41</b><span id="w-sub">MemeScreen is installed — tap the icon to open it.</span></div>
+        <div class="grid" id="grid"></div>
+        <div class="hint-tap" id="hintTap">Tap MemeScreen to open the app</div>
+        <div class="dock" id="dock"></div>
+      </div>
+
+      <!-- THE APP (keeps running in the background when you go home, so alerts still arrive) -->
+      <div class="appwin" id="appwin"><div class="top"></div><iframe id="app" src="./?m=1" title="MemeScreen phone app"></iframe><div class="bot"></div></div>
+
+      <div class="nc" id="nc"><h3>Notifications <button id="ncClear">Clear</button></h3><div id="ncList"></div></div>
+      <button class="banner" id="banner"><img src="icon.svg" alt=""><span><span class="l1"><span>MemeScreen</span><span>now</span></span><b id="bnTitle"></b><p id="bnBody"></p></span></button>
+      <button class="homebar" id="homebar" title="Home" aria-label="Go to home screen"><i></i></button>
+    </div>
+  </div>
+
+  <button class="ptoggle" id="ptoggle" title="Show / hide controls" aria-label="Show or hide controls"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 6h9M16 6h1M3 14h1M8 14h9"/><circle cx="14" cy="6" r="2"/><circle cx="6" cy="14" r="2"/></svg></button>
+  <aside class="panel" id="panel">
+    <div class="logo"><img src="icon.svg" width="24" height="24" alt="">Meme<span>Screen</span>&nbsp;phone</div>
+    <p>A working phone: tap the MemeScreen icon to launch the app, sign in or create an account, and press the bar at the bottom to go home. The app keeps running, so alerts land on the home screen like real push notifications.</p>
+    <div class="state" id="appstate">App: not opened yet</div>
+    <div class="devs two"><button id="openApp">Open app</button><button id="goHome">Home screen</button></div>
+
+    <h2>Push notifications</h2>
+    <div class="state" id="nstate"></div>
+    <div class="devs"><button class="primary" id="enable">Enable notifications</button><button id="test">Send a test alert</button></div>
+
+    <h2>Device</h2>
+    <div class="devs" id="devs">
+      <button data-w="393" data-h="852" class="on">iPhone 15 / 16 <small>393 × 852</small></button>
+      <button data-w="430" data-h="932">iPhone Pro Max <small>430 × 932</small></button>
+      <button data-w="375" data-h="667">iPhone SE <small>375 × 667</small></button>
+      <button data-w="412" data-h="915" data-os="android">Pixel 8 <small>412 × 915</small></button>
+      <button data-w="360" data-h="800" data-os="android">Galaxy S <small>360 × 800</small></button>
+    </div>
+
+    <h2>Shortcuts</h2>
+    <div class="devs"><button id="reload">Restart the app</button><a class="btn" href="./?m=0" target="_blank" rel="noopener">Open the desktop site ↗</a><a class="btn" href="./?m=1" target="_blank" rel="noopener">Phone app without the frame ↗</a></div>
+    <p style="margin-top:12px;font-size:12px">On a real phone: same Wi-Fi, open the <b>Network</b> address that <code>npm run dev</code> prints, then "Add to Home Screen".</p>
+  </aside>
+
+<script>
+const $ = id => document.getElementById(id), frame = $('app'), screenEl = $('screen'), rootS = document.documentElement.style;
+
+// ---------- fit + centre ----------
+function fit(){ const cs = getComputedStyle(document.documentElement); const w = parseInt(cs.getPropertyValue('--w')) + 24, h = parseInt(cs.getPropertyValue('--h')) + 24; rootS.setProperty('--scale', Math.min(1, (innerWidth - 32) / w, (innerHeight - 32) / h).toFixed(3)); }
+document.querySelectorAll('#devs button').forEach(b => b.onclick = () => { document.querySelectorAll('#devs button').forEach(x => x.classList.toggle('on', x === b)); rootS.setProperty('--w', b.dataset.w + 'px'); rootS.setProperty('--h', b.dataset.h + 'px'); document.body.classList.toggle('android', b.dataset.os === 'android'); fit(); });
+addEventListener('resize', fit); fit();
+$('ptoggle').onclick = () => $('panel').classList.toggle('closed'); if (innerWidth < 1060) $('panel').classList.add('closed');
+
+// ---------- clock ----------
+function clock(){ const d = new Date(), t = (d.getHours() % 12 || 12) + ':' + String(d.getMinutes()).padStart(2, '0'); $('clock').textContent = t; $('w-time').textContent = t; $('w-day').textContent = d.toLocaleDateString(undefined, { weekday:'long', month:'long', day:'numeric' }); } clock(); setInterval(clock, 10000);
+
+// ---------- home screen ----------
+const G = d => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+const FAKE = [['Messages','#34C759',G('<path d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-7l-5 4v-4a2 2 0 0 1-2-2z"/>')],['Photos','#FF9F0A',G('<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.600 5.600l2.100 2.100M16.300 16.300l2.100 2.100M18.400 5.600l-2.100 2.100M7.700 16.300l-2.100 2.100"/>')],['Camera','#636366',G('<path d="M4 8h3l2-2.500h6L17 8h3v11H4z"/><circle cx="12" cy="13" r="3.500"/>')],['Maps','#30B0C7',G('<path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2z M9 4v14 M15 6v14"/>')],['Weather','#0A84FF',G('<path d="M7 17a4 4 0 1 1 1-7.900A5 5 0 0 1 18 11a3 3 0 0 1 0 6z"/>')],['Notes','#FFD60A',G('<path d="M6 3h12v18H6z M9 8h6 M9 12h6 M9 16h3"/>')],['Settings','#8E8E93',G('<circle cx="12" cy="12" r="3"/><path d="M12 3v2.500M12 18.500V21M3 12h2.500M18.500 12H21M5.600 5.600l1.800 1.800M16.600 16.600l1.800 1.800M18.400 5.600l-1.800 1.800M7.400 16.600l-1.800 1.800"/>')]];
+const DOCK = [['Phone','#34C759',G('<path d="M6 3h3l2 5-2.500 1.500a11 11 0 0 0 6 6L16 13l5 2v3a2 2 0 0 1-2 2A16 16 0 0 1 4 5a2 2 0 0 1 2-2z"/>')],['Safari','#0A84FF',G('<circle cx="12" cy="12" r="9"/><path d="M15.500 8.500l-2 5-5 2 2-5z"/>')],['Mail','#0A84FF',G('<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>')],['Music','#FF375F',G('<path d="M9 18V5l11-2v13"/><circle cx="6.500" cy="18" r="2.500"/><circle cx="17.500" cy="16" r="2.500"/>')]];
+const fake = ([n, c, g]) => `<button class="app fake" data-fake="${n}"><span class="ico" style="background:${c}">${g}</span><span>${n}</span></button>`;
+$('grid').innerHTML = `<button class="app" id="msIcon" aria-label="Open MemeScreen"><span class="ico ms"><img src="icon.svg" alt=""><i class="badge" id="badge"></i></span><span>MemeScreen</span></button>` + FAKE.map(fake).join('');
+$('dock').innerHTML = DOCK.map(fake).join('');
+document.querySelectorAll('[data-fake]').forEach(b => b.onclick = () => osNotify({ title: b.dataset.fake, body: 'This one is just decoration — MemeScreen is the real app here.', sys:true }));
+
+// ---------- app lifecycle ----------
+let appOpen = false, unreadOS = 0, signedInAs = null;
+function openApp(addr){ appOpen = true; screenEl.classList.add('app-open'); $('nc').classList.remove('show'); unreadOS = 0; paintBadge(); $('hintTap').style.display = 'none'; appState();
+  setTimeout(() => { try { frame.contentWindow.dispatchEvent(new Event('resize')); if (addr) frame.contentWindow.postMessage({ source:'phone-os', type:'open-token', addr }, location.origin); } catch {} }, 380); }
+function goHome(){ appOpen = false; screenEl.classList.remove('app-open'); $('nc').classList.remove('show'); appState(); }
+function appState(){ $('appstate').innerHTML = 'App: <b>' + (appOpen ? 'open' : 'running in the background') + '</b>' + (signedInAs ? ' · signed in as <b>' + signedInAs.replace(/[<>&]/g, '') + '</b>' : ' · not signed in'); $('w-sub').textContent = signedInAs ? 'Signed in as ' + signedInAs + ' — alerts will show up here.' : 'MemeScreen is installed — tap the icon to open it.'; }
+function paintBadge(){ const b = $('badge'); b.textContent = unreadOS > 99 ? '99+' : unreadOS; b.classList.toggle('on', unreadOS > 0); }
+$('msIcon').onclick = () => openApp(); $('openApp').onclick = () => openApp(); $('homebar').onclick = goHome; $('goHome').onclick = goHome;
+$('reload').onclick = () => { signedInAs = null; frame.contentWindow.location.reload(); appState(); };
+addEventListener('keydown', e => { if (e.key === 'Escape') goHome(); });
+
+// ---------- OS notifications (the app posts its alerts up to the "phone") ----------
+const log = []; let bannerT = null, bannerAddr = null;
+function osNotify({ title, body, addr, sys }){ if (!sys) { log.unshift({ title, body, addr, at: Date.now() }); log.length = Math.min(log.length, 30); paintNC(); if (!appOpen) { unreadOS++; paintBadge(); } }
+  if (appOpen && !sys) return;                       // foreground: the app shows its own in-app banner, like iOS
+  $('bnTitle').textContent = title; $('bnBody').textContent = body; bannerAddr = sys ? null : (addr || true); $('banner').classList.add('show'); clearTimeout(bannerT); bannerT = setTimeout(() => $('banner').classList.remove('show'), 5200); }
+$('banner').onclick = () => { $('banner').classList.remove('show'); if (bannerAddr) openApp(bannerAddr === true ? null : bannerAddr); };
+function paintNC(){ $('ncList').innerHTML = log.length ? log.map((n, i) => `<button class="item" data-i="${i}"><img src="icon.svg" alt=""><span><time>${new Date(n.at).toLocaleTimeString([], { hour:'numeric', minute:'2-digit' })}</time><b></b><p></p></span></button>`).join('') : '<div class="none">No notifications</div>';
+  $('ncList').querySelectorAll('.item').forEach(el => { const n = log[+el.dataset.i]; el.querySelector('b').textContent = n.title; el.querySelector('p').textContent = n.body; el.onclick = () => openApp(n.addr); }); }
+$('statusbar').onclick = () => $('nc').classList.toggle('show'); $('ncClear').onclick = () => { log.length = 0; unreadOS = 0; paintBadge(); paintNC(); }; paintNC();
+addEventListener('message', e => { if (e.origin !== location.origin || e.data?.source !== 'memescreen') return; const m = e.data;
+  if (m.type === 'ms-alert') osNotify({ title: m.sym, body: m.msg, addr: m.addr });
+  if (m.type === 'ms-signed-in') { signedInAs = m.user; appState(); }
+  if (m.type === 'ms-signed-out') { signedInAs = null; appState(); } });
+
+// ---------- browser-level (real) notifications ----------
+function nstate(){ const el = $('nstate'); if (!('Notification' in window)) { el.innerHTML = '<b class="warn">Not supported</b> in this browser. Phone banners still work.'; return; }
+  const p = Notification.permission; el.innerHTML = p === 'granted' ? '<b class="ok">On.</b> Alerts also arrive as system notifications from your browser.' : p === 'denied' ? '<b class="warn">Blocked.</b> Click the icon left of the address bar → allow notifications.' : '<b>Phone banners are on.</b> Enable to also get system notifications outside this tab.';
+  $('enable').style.display = p === 'granted' ? 'none' : ''; }
+const inApp = id => { try { return frame.contentDocument.getElementById(id); } catch { return null; } };
+$('enable').onclick = async () => { if ('Notification' in window) await Notification.requestPermission(); inApp('enable')?.click(); nstate(); };
+$('test').onclick = () => { const inside = inApp('app'); if (signedInAs && inside && inside.style.display !== 'none') inApp('testn')?.click(); else osNotify({ title:'MemeScreen', body:'Open the app and sign in (or browse as guest) to start getting price alerts.', addr:null }); };
+nstate(); setInterval(nstate, 3000); appState();
+</script>
+</body>
+</html>

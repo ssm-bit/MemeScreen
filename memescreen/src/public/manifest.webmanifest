@@ -1,0 +1,12 @@
+{
+  "name": "MemeScreen",
+  "short_name": "MemeScreen",
+  "description": "Chart, grade and paper-trade Solana memecoins. Paper trading only.",
+  "start_url": "./?m=1",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0C0E12",
+  "theme_color": "#14161C",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

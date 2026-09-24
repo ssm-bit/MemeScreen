@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<script>if(/[?&]m=1\b/.test(location.search)||window.ReactNativeWebView||matchMedia("(max-width:760px)").matches)document.querySelector("meta[name=viewport]").content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover";</script>
+<meta name="theme-color" content="#14161C">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>MemeScreen</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="mobile.css">
+<script>
+// Phone layout switch: ?m=1 forces it (phone.html uses this), ?m=0 forces desktop, otherwise it follows the screen width.
+(function(){ var q=location.search, d=document.documentElement;
+  function on(){ return /[?&]m=1\b/.test(q) ? true : /[?&]m=0\b/.test(q) ? false : window.matchMedia('(max-width: 760px)').matches; }
+  function set(){ var m=on(); if(d.classList.contains('mobile')!==m) d.classList.toggle('mobile', m); }
+  set(); window.addEventListener('resize', set); })();
+</script>
+</head>
+<body>
+
+<!-- LANDING PAGE -->
+<div id="landing" class="landing">
+  <nav class="lnav">
+    <div class="logo"><svg width="28" height="28" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="36" fill="none" stroke="#22E4A0" stroke-width="6"/><path d="M57 31L70 26" fill="none" stroke="#22E4A0" stroke-width="5" stroke-linecap="round"/><rect x="31" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><rect x="59" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><path d="M33 66Q50 68 67 58" fill="none" stroke="#22E4A0" stroke-width="5.5" stroke-linecap="round"/></svg>Meme<span>Screen</span></div>
+    <div class="lnav-links"><a href="#l-features">Features</a><a href="#l-charts">Charting</a><a href="#l-how">How it works</a></div>
+    <div class="lnav-actions"><button id="landing-login" class="lbtn-ghost">Log in</button><button id="landing-start" class="lbtn-primary">Get started free</button></div>
+  </nav>
+
+  <section class="hero2">
+    <div class="hero2-copy">
+      <div class="hero-badge"><i></i>Live Solana data · paper money only</div>
+      <h1 class="hero-title">TradingView for <span>memecoins.</span></h1>
+      <p class="hero-sub">Chart any Solana memecoin with pro drawing tools, see its rug risk before you touch it, and trade it with $10,000 of paper money at real fees and slippage. Find out if your edge is real before it costs you.</p>
+      <div class="hero-cta"><button id="landing-start2" class="lbtn-primary big">Create free account</button><button id="landing-demo" class="lbtn-ghost big">Try it as a guest</button></div>
+      <div class="hero-stats"><div><b id="ls-tokens">30+</b><span>tokens tracked live</span></div><div><b>$10,000</b><span>paper money to start</span></div><div><b>A–F</b><span>rug-risk grade on every token</span></div></div>
+    </div>
+    <div class="hero2-art" aria-hidden="true">
+      <div class="mock">
+        <div class="mock-bar"><i></i><i></i><i></i><span>memescreen · terminal</span></div>
+        <div class="mock-body">
+          <div class="mock-list">
+            <div class="mrow sel"><b>WIFHAT</b><em class="g gA">A</em><span class="up">+12.4%</span></div>
+            <div class="mrow"><b>GPTCAT</b><em class="g gB">B</em><span class="up">+3.1%</span></div>
+            <div class="mrow"><b>PEPEAI</b><em class="g gC">C</em><span class="dn">-6.8%</span></div>
+            <div class="mrow"><b>MOONDOG</b><em class="g gB">B</em><span class="up">+0.9%</span></div>
+            <div class="mrow"><b>BONKZ</b><em class="g gF">F</em><span class="dn">-41.2%</span></div>
+            <div class="mrow"><b>CAPY</b><em class="g gD">D</em><span class="dn">-2.2%</span></div>
+          </div>
+          <div class="mock-chart"><div class="mock-h"><b>WIFHAT</b> <em class="g gA">A</em> <span class="num">$0.004212</span> <span class="up num">+12.4%</span></div><svg id="heroChart" viewBox="0 0 420 220" preserveAspectRatio="none"></svg></div>
+          <div class="mock-ticket"><div class="mt-tabs"><span class="on">Market</span><span>Limit</span><span>Stop</span></div><div class="mt-row"><span>Amount</span><b class="num">$250</b></div><div class="mt-row"><span>Take profit</span><b class="num up">+$100</b></div><div class="mt-row"><span>Stop loss</span><b class="num dn">−$50</b></div><div class="mt-btns"><span class="long">Long</span><span class="short">Short</span></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="features" id="l-features">
+    <div class="fcard"><svg class="fsvg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3v4M7 15v6M17 3v6M17 17v4"/><rect x="4.5" y="7" width="5" height="8" rx="1"/><rect x="14.5" y="9" width="5" height="8" rx="1"/></svg><h3>Pro charts</h3><p>Candles on a market-cap axis, MA / EMA / Bollinger / RSI, and live ticks streamed from on-chain trades.</p></div>
+    <div class="fcard"><svg class="fsvg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg><h3>Rug-risk grades</h3><p>Every token scored A–F from liquidity, wash-trading signals, buy/sell pressure and pair age. Know what you're standing on.</p></div>
+    <div class="fcard"><svg class="fsvg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M15 9.3c-.4-1.100-1.500-1.800-3-1.800-1.700 0-3 .9-3 2.200s1.300 2 3 2.300 3 1 3 2.300-1.300 2.200-3 2.200c-1.500 0-2.600-.7-3-1.800M12 5.800v1.700M12 16.500v1.700"/></svg><h3>Real fills, fake money</h3><p>Platform fee, LP fee, network fee and price impact on every order. Long, short, limit, stop, take-profit and stop-loss.</p></div>
+    <div class="fcard"><svg class="fsvg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4h10v5a5 5 0 0 1-10 0zM7 6H4v1a3 3 0 0 0 3 3M17 6h3v1a3 3 0 0 1-3 3M12 14v4M8 20h8"/></svg><h3>Competitions</h3><p>Weekly and all-time leaderboards ranked by risk-adjusted return — trading A-grades scores higher than gambling on F's.</p></div>
+    <div class="fcard"><svg class="fsvg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9a6 6 0 0 1 12 0c0 6 2 7 2 8H4c0-1 2-2 2-8zM10 20a2 2 0 0 0 4 0"/></svg><h3>Alerts that find you</h3><p>Price moves, grade downgrades, new clean launches and news on tokens you watch — in the app and as push notifications.</p></div>
+    <div class="fcard"><svg class="fsvg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19V5M4 19h16M8 15l3-4 3 2 5-7"/></svg><h3>A journal that tells the truth</h3><p>P&amp;L broken down by the grade you entered at, win rate and fees paid, so you learn which instincts actually make money.</p></div>
+  </section>
+
+  <section class="lsplit" id="l-charts">
+    <div><h2>The drawing tools you already know.</h2><p>Trend lines, rays and channels. Fibonacci retracement and extension. Rectangles, circles and triangles. Long / short position planners with live reward-to-risk. XABCD, Elliott waves and head-and-shoulders. Notes, callouts and price labels. Drawings are saved per token and come back when you do.</p>
+      <ul class="ticks"><li>Works with a mouse and with your thumb</li><li>Right-click (or long-press) the chart to drop a limit, stop, TP or SL at that price</li><li>Entry, take-profit and stop-loss lines stay pinned in view</li></ul></div>
+    <div class="toolcloud" aria-hidden="true"><span>Trend line</span><span>Ray</span><span>Parallel channel</span><span>Fib retracement</span><span>Fib extension</span><span>Rectangle</span><span>Circle</span><span>Triangle</span><span>Long position</span><span>Short position</span><span>Price range</span><span>XABCD</span><span>Elliott 1-2-3-4-5</span><span>Head &amp; shoulders</span><span>Callout</span><span>Price note</span><span>Arrow</span><span>Magnet</span></div>
+  </section>
+
+  <section class="steps" id="l-how">
+    <div class="step"><b>1</b><h3>Create an account</h3><p>Email and password. No wallet, no card. You get a $10,000 paper account — add more with any starting balance.</p></div>
+    <div class="step"><b>2</b><h3>Screen and chart</h3><p>Filter by grade, liquidity and age. Open a chart, mark your levels, check the red flags.</p></div>
+    <div class="step"><b>3</b><h3>Trade and review</h3><p>Go long or short with a plan. Compete on the weekly board, then read your journal.</p></div>
+  </section>
+
+  <section class="cta-band">
+    <h2>Ready to find out if you can actually trade?</h2>
+    <button id="landing-start3" class="lbtn-primary big">Create your free account</button>
+    <p class="cta-fine">No credit card. No wallet connection. Paper trading only. Not financial advice.</p>
+  </section>
+  <footer class="lfooter">MemeScreen · Paper trading only · Prices from DexScreener &amp; PumpPortal · Not financial advice · <a href="#" data-legal>Privacy &amp; terms</a></footer>
+</div>
+
+<!-- AUTH (on a phone this is the first screen) -->
+<div id="auth" class="auth" style="display:none">
+  <aside class="auth-art">
+    <div class="logo big"><svg width="36" height="36" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="36" fill="none" stroke="#22E4A0" stroke-width="6"/><path d="M57 31L70 26" fill="none" stroke="#22E4A0" stroke-width="5" stroke-linecap="round"/><rect x="31" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><rect x="59" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><path d="M33 66Q50 68 67 58" fill="none" stroke="#22E4A0" stroke-width="5.5" stroke-linecap="round"/></svg>Meme<span>Screen</span></div>
+    <h2>TradingView for memecoins.</h2>
+    <p>Chart, grade and paper-trade Solana memecoins with live data.</p>
+    <ul class="ticks"><li>$10,000 paper account, real fees and slippage</li><li>A–F rug-risk grade on every token</li><li>Pro drawing tools, alerts and weekly competitions</li></ul>
+    <svg id="authChart" viewBox="0 0 420 160" preserveAspectRatio="none" aria-hidden="true"></svg>
+  </aside>
+  <main class="auth-main">
+    <div class="authbox">
+      <button type="button" id="auth-back" class="auth-back">← Back</button>
+      <div class="auth-mlogo logo"><svg width="30" height="30" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="36" fill="none" stroke="#22E4A0" stroke-width="6"/><path d="M57 31L70 26" fill="none" stroke="#22E4A0" stroke-width="5" stroke-linecap="round"/><rect x="31" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><rect x="59" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><path d="M33 66Q50 68 67 58" fill="none" stroke="#22E4A0" stroke-width="5.5" stroke-linecap="round"/></svg>Meme<span>Screen</span></div>
+      <h1 id="auth-h">Welcome back</h1>
+      <p class="tag" id="auth-sub">Log in to pick up where you left off.</p>
+      <div class="tabs"><button type="button" id="tab-login" class="on">Log in</button><button type="button" id="tab-reg">Create account</button></div>
+      <form id="authform" autocomplete="on">
+        <label id="nick-l" style="display:none">Nickname<input id="f-nick" maxlength="20" placeholder="shown on leaderboards" autocomplete="nickname"></label>
+        <label>Email<input id="f-email" type="email" autocomplete="email" placeholder="you@example.com" required></label>
+        <label>Password<span class="pwwrap"><input id="f-pass" type="password" autocomplete="current-password" placeholder="at least 8 characters" required minlength="1"><button type="button" id="pw-eye" class="pw-eye">Show</button></span></label>
+        <label class="remember"><input type="checkbox" id="f-remember" checked> <span>Keep me signed in <em>on this device</em></span></label>
+        <label class="remember" id="consent-l" style="display:none"><input type="checkbox" id="f-consent"> <span>I agree to the <a href="#" data-legal>Terms of Service and Privacy Policy</a></span></label>
+        <div id="autherr" class="autherr" role="alert"></div>
+        <button class="primary" id="authbtn" type="submit">Log in</button>
+      </form>
+      <div class="auth-or"><span>or</span></div>
+      <button id="guest" type="button" class="ghost">Browse as guest</button>
+      <div class="auth-switch" id="auth-switch"></div>
+      <div class="authnote">Paper trading only — no real funds, no wallet connection. Passwords are stored only as a bcrypt hash.</div>
+      <div class="srvstate"><span id="srvstate"></span> · <a href="#" id="auth-server">change</a></div>
+    </div>
+  </main>
+</div>
+
+<!-- APP -->
+<div id="app" style="display:none">
+  <header>
+    <div class="logo"><svg width="30" height="30" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="36" fill="none" stroke="#22E4A0" stroke-width="6"/><path d="M57 31L70 26" fill="none" stroke="#22E4A0" stroke-width="5" stroke-linecap="round"/><rect x="31" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><rect x="59" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><path d="M33 66Q50 68 67 58" fill="none" stroke="#22E4A0" stroke-width="5.5" stroke-linecap="round"/></svg>Meme<span>Screen</span></div>
+    <nav id="nav">
+      <button data-v="dash" class="on">Dashboard</button><button data-v="screen">Screener</button><button data-v="trade">Trade</button><button data-v="news">News</button><button data-v="portfolio">Portfolio</button><button data-v="comp">Competitions</button><button data-v="settings">Settings<span class="badge" id="abadge" style="display:none">0</span></button>
+    </nav>
+    <div class="wallet">
+      <select id="acctSel" class="acctsel" title="Paper trading account"></select><button id="brokerBtn" class="mini">Broker</button>
+      <div>Equity<b class="num" id="equity">$10,000.00</b></div><div>P&amp;L<b class="num" id="pnl">$0.00</b></div><div>This week<b class="num" id="wk">+0.0%</b></div>
+      <div class="who"><span id="whoami"></span><button id="logout" class="mini">Log out</button></div>
+    </div>
+    <div class="status"><span class="dot" id="dot"></span><span id="feed">connecting…</span><span id="sync" style="margin-left:auto"></span></div>
+    <div class="ticker" id="ticker"><div class="ticker-track" id="tickerTrack"></div></div>
+  </header>
+
+  <main>
+    <div class="view on" id="v-dash"><section>
+      <div class="dashgrid" id="dashgrid"></div>
+    </section></div>
+    <div class="view" id="v-screen"><section id="screenPanel">
+      <div class="scr-head"><div><h2 style="margin:0">Screener</h2><div class="hint" id="screenMeta">Loading…</div></div><button class="mini" id="screenEdit">Edit conditions</button></div>
+      <div class="chips" id="screenChips"></div>
+      <div class="scr-wrap" id="screenTable"></div>
+      <div class="hint" style="margin-top:10px">Tap a row to chart it. Holders, top-10, insider, bundled and mint columns come from RugCheck and fill in over a minute or two. Whales counts trades of $1,000 or more in the last 10 minutes from the live stream. Social momentum blends DexScreener boosts, listed socials, volume against liquidity and the 1h move. Not financial advice.</div>
+    </section></div>
+    <div class="view" id="v-trade">
+      <div class="terminal">
+        <section class="t-list">
+          <div class="screener">
+            <input id="q" placeholder="Search token" aria-label="Search">
+            <select id="fg" aria-label="Minimum grade"><option value="F">Any grade</option><option value="C">C+</option><option value="B">B+</option><option value="A">A</option></select>
+            <select id="fl" aria-label="Minimum liquidity"><option value="0">Any liq</option><option value="10000">≥$10k</option><option value="50000">≥$50k</option><option value="250000">≥$250k</option></select>
+            <select id="fa" aria-label="Maximum age"><option value="0">Any age</option><option value="60">&lt;1h</option><option value="1440">&lt;24h</option><option value="10080">&lt;7d</option></select>
+            <select id="fs" aria-label="Sort"><option value="liq">Liquidity</option><option value="ch1">1h</option><option value="ch24">24h</option><option value="vol24">Volume</option><option value="score">Safety</option><option value="created">Newest</option></select>
+            <label class="chk"><input type="checkbox" id="fw"> Watch</label><span id="count"></span>
+          </div>
+          <div class="t-list-scroll">
+            <table><thead><tr><th>Token</th><th>Rug risk</th><th>Market cap</th><th>1h</th></tr></thead><tbody id="rows"><tr><td colspan="4" class="empty">Loading…</td></tr></tbody></table>
+          </div>
+        </section>
+        <section class="t-center" id="detail"><div class="empty">Pick a token on the left to chart it and paper trade it.</div></section>
+        <section class="t-order" id="orderpanel"><div class="empty">Select a token to trade.</div></section>
+        <section class="t-bottom" id="tBottom"><div class="resizer" id="bottomResizer"></div><div class="t-bottom-tabs"><button class="tbt on" data-bt="positions">Positions</button><button class="tbt" data-bt="orders">Open orders</button><button class="tbt" data-bt="history">Trade history</button><button id="bottomCollapse" class="bottom-collapse" title="Collapse/expand">▾</button></div><div id="bottomPanel"></div></section>
+      </div>
+    </div>
+
+    <div class="view" id="v-news"><section>
+      <div class="newshd"><h2 style="margin:0">Crypto news</h2><input id="newsFilter" placeholder="Filter by token or keyword" style="max-width:260px"></div>
+      <div class="news-heat-wrap"><div class="dlabel" style="margin-bottom:8px">Market heatmap · click a coin to see its news</div><div id="newsHeatmap" class="news-heatmap"></div></div>
+      <div id="newsFilterLabel" class="hint" style="margin:16px 0 8px">All crypto news</div>
+      <div id="newsList" class="newslist"></div>
+    </section></div>
+    <div class="view" id="v-portfolio"><section>
+      <div class="kpis" id="pkpis"></div>
+      <div class="grid2"><div class="card"><h2>Equity since you opened the app</h2><canvas class="eq" id="eqc"></canvas></div><div class="card"><h2>P&amp;L by grade at entry</h2><div id="bygrade"></div></div></div>
+      <div class="card"><h2>Trade history</h2><div id="history"></div></div>
+    </section></div>
+
+        <div class="view" id="v-comp"><section>
+      <div class="card" id="join"></div>
+      <div id="compBoard"></div>
+      <div class="compgrid">
+        <div class="card"><div class="cardhead"><h3>MemeScreen competitions</h3><button class="mini primary" id="createComp">+ Create</button></div><div class="hint" style="margin-bottom:10px">Official weekly & all-time boards, plus any competitions traders have created.</div><div id="compList"></div></div>
+        <div class="card"><h3>Other competitions</h3><div class="hint" style="margin-bottom:10px">Live trading competitions running elsewhere in crypto. Informational — links open externally.</div><div id="extComps"></div></div>
+      </div>
+      <div class="grid2">
+        <div class="card"><h3>This week</h3><div class="hint" id="wkinfo"></div><table><thead><tr><th></th><th>Trader</th><th>Return</th><th>Avg grade</th><th>Trades</th><th>Score</th></tr></thead><tbody id="lb-week"></tbody></table></div>
+        <div class="card"><h3>All time</h3><div class="hint">Since each trader's last reset. Score = return weighted by the grades traded.</div><table><thead><tr><th></th><th>Trader</th><th>Return</th><th>Avg grade</th><th>Trades</th><th>Score</th></tr></thead><tbody id="lb-all"></tbody></table></div>
+      </div>
+    </section></div>
+
+
+        <div class="view" id="v-legal"><section id="legalBody" class="legal">
+      <h2>Privacy policy</h2>
+      <p>MemeScreen is a student project for paper trading. It stores the email address, nickname and bcrypt-hashed password you sign up with, your paper-trading accounts (simulated cash, positions, orders and trade history), your watchlist, alert rules, saved screens and leaderboard scores. This data is kept in Back4App (Parse) and cached in your browser's local storage so the app opens quickly and works offline. Nothing else is collected: no location, no contacts, no advertising identifiers, no analytics or tracking SDKs, and no cookies beyond the session that keeps you signed in. Market prices, charts and news are fetched from DexScreener, GeckoTerminal, PumpPortal, RugCheck, CoinGecko, Alternative.me and public news feeds; those requests carry no account information. We do not sell or share personal data. Email is used only to sign in.</p>
+      <h2>Terms of service</h2>
+      <p>MemeScreen is a simulator. Every balance, order and fill is fictional. It never connects to a wallet, exchange or broker and never moves real money. Prices, grades, screens and alerts are informational, can be wrong or delayed, and are not financial advice. You must be 18 or older to create an account. Do not use the service for anything unlawful or attempt to disrupt it. The service is provided as is, without warranty, and may change or stop at any time. Leaderboard nicknames are visible to other users.</p>
+      <h2>Refunds</h2>
+      <p>MemeScreen is free. There is nothing to purchase and nothing to refund.</p>
+      <h2>Cookies</h2>
+      <p>No advertising or third-party cookies. The only stored items are your sign-in session and app settings in browser storage, which you control through "Keep me signed in" and by logging out.</p>
+      <h2>Accessibility</h2>
+      <p>Text and controls meet a minimum 4.5:1 contrast ratio on the dark theme. Every control can be reached with a keyboard (Tab, Enter, Space, arrow keys on tables, Escape closes menus). Icons carry text labels or ARIA labels. Motion is reduced when your device asks for it. Tap targets on phones are at least 44 points.</p>
+      <h2>Delete your data</h2>
+      <p>You can delete your account and everything tied to it at any time. Deletion removes your user record, paper accounts, profile and leaderboard rows from Back4App and clears this browser's cache. It cannot be undone.</p>
+      <button class="danger" id="deleteAcct">Delete my account and data</button>
+      <p class="hint" style="margin-top:14px">Contact: the MemeScreen team, NJIT. Last updated September 23, 2026.</p>
+    </section></div>
+    <div class="view" id="v-settings"><section>
+      <div class="grid2">
+        <div class="card"><h3>Account</h3><div id="acct" class="hint"></div><h3 style="margin-top:18px">Paper trading accounts</h3><div class="hint" style="margin-bottom:8px">Create separate paper portfolios, like TradingView. Switch between them from the header.</div><div id="acctMgr"></div><h3 style="margin-top:18px">Connect a broker</h3><div class="hint" style="margin-bottom:8px">Trade memecoins for real through a connected wallet or broker. Coming later — paper only for now.</div><button class="mini" id="connectBroker">Connect broker</button></div>
+        <div class="card"><h3>Notifications & alerts</h3><div id="notifstate" class="hint" style="margin-bottom:10px"></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="primary" id="enable">Enable browser notifications</button><button id="testn">Send a test</button></div><h2 style="margin-top:16px">Rules</h2><div id="rules"></div><h2 style="margin-top:16px">Recent alerts</h2><div id="alog" style="max-height:200px;overflow:auto"></div><h3 style="margin-top:18px">Fees model</h3><div class="row"><span>Platform fee</span><b class="num">1.0%</b></div><div class="row"><span>LP fee</span><b class="num">0.3%</b></div><div class="row"><span>Network fee</span><b class="num">$0.10</b></div><h3 style="margin-top:18px">Legal</h3><div class="hint" style="margin-bottom:8px">Privacy policy, terms of service, accessibility and data deletion.</div><button class="mini" data-legal>View legal &amp; privacy</button><h3 style="margin-top:18px">Server</h3><div class="row"><span>Backend</span><b class="num" id="apiurl"></b></div><button id="setapi" class="mini">Change server</button><div style="margin-top:14px"><button class="danger" id="reset">Reset this account to $10,000</button></div></div>
+      </div>
+    </section></div>
+  </main>
+  <footer>Paper trading only. Simulated funds. Nothing here is financial advice. Prices from DexScreener &amp; PumpPortal, history from GeckoTerminal. Grades are a heuristic, not a security audit.</footer>
+</div>
+<!-- broker picker -->
+<div id="brokerModal" class="modal" style="display:none">
+  <div class="modalbox">
+    <div class="modalhead"><h2 style="margin:0">Connect a broker</h2><button id="brokerClose" class="mini" aria-label="Close">✕</button></div>
+    <div class="brokermsg hint" id="brokerMsg"></div>
+    <div class="brokergrid" id="brokerGrid"></div>
+  </div>
+</div>
+<!-- backend picker -->
+<div id="backendModal" class="modal" style="display:none">
+  <div class="modalbox" style="max-width:520px">
+    <div class="modalhead"><h2 style="margin:0">Server</h2><button id="bk-close" class="mini" aria-label="Close">✕</button></div>
+    <p class="hint" style="margin-top:0">Where accounts, paper portfolios and leaderboards are stored. Changing this signs you out.</p>
+    <label class="bkopt"><input type="radio" name="bk" value="back4app"> <span><b>Back4App</b><em>Hosted Parse backend — paste your app's keys</em></span></label>
+    <div id="bk-b4a" class="bkfields"><label>Application ID<input id="bk-app" autocomplete="off" spellcheck="false"></label><label>JavaScript key<input id="bk-key" autocomplete="off" spellcheck="false"></label><label>Server URL<input id="bk-srv" autocomplete="off" spellcheck="false" placeholder="https://parseapi.back4app.com"></label><div class="hint">Back4App dashboard → App Settings → Security &amp; Keys. Never use the master key here.</div></div>
+    <label class="bkopt"><input type="radio" name="bk" value="express"> <span><b>MemeScreen server</b><em>The Node + Postgres API in /server</em></span></label>
+    <div id="bk-express" class="bkfields"><label>Server URL<input id="bk-url" autocomplete="off" spellcheck="false" placeholder="http://localhost:4000"></label></div>
+    <div id="bk-err" class="autherr"></div>
+    <button class="primary" id="bk-save" style="width:100%;margin-top:6px">Save and reload</button>
+  </div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<script src="https://unpkg.com/klinecharts@9.8.10/dist/umd/klinecharts.min.js"></script>
+<div id="screenModal" class="modal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="scrTitle">
+  <div class="modalbox" style="max-width:640px">
+    <div class="modalhead"><h2 id="scrTitle" style="margin:0">Screen conditions</h2><button id="scrClose" class="mini" aria-label="Close">✕</button></div>
+    <label class="scr-name">Name<input id="scrName" maxlength="30" placeholder="e.g. Fresh & clean"></label>
+    <div class="scr-fields" id="scrFields"></div>
+    <label class="remember" style="margin:12px 0 6px"><input type="checkbox" id="scrAlerts"> <span>Alert me when a token starts matching this screen</span></label>
+    <div class="hint" id="scrPreview" style="margin-bottom:12px"></div>
+    <div class="scr-actions"><button id="scrDelete" class="danger" style="display:none">Delete</button><span style="flex:1"></span><button id="scrApply">Apply once</button><button id="scrSave" class="primary">Save screen</button></div>
+  </div>
+</div>
+<script type="module" src="app.js"></script>
+<script type="module" src="mobile.js"></script>
+<script>document.addEventListener("click",e=>{const a=e.target.closest&&e.target.closest("[data-legal]");if(!a)return;e.preventDefault();document.getElementById("landing").style.display="none";document.getElementById("auth").style.display="none";document.getElementById("app").style.display="block";document.querySelectorAll(".view").forEach(x=>x.classList.toggle("on",x.id==="v-legal"));});</script>
+</body>
+</html>
