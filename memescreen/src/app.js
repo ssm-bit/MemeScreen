@@ -3,7 +3,7 @@
 // ============================================================
 import * as DT from './drawtools.js';
 import * as SCR from './screener.js';
-import { createBackend, session, settings as backendSettings, saveSettings as saveBackendSettings, isAuthError } from './backend.js';
+import { createBackend, session, settings as backendSettings, saveSettings as saveBackendSettings, resetSettings as resetBackendSettings, isAuthError } from './backend.js';
 let backend = createBackend();
 
 // ---------- NEWS SOURCES CONFIG ----------
@@ -237,15 +237,17 @@ function loadPrefs(){ const s = store.get('ms_prefs_'+userKey()) || (userKey()==
 let dirtyAcct = false, dirtyProfile = false, syncTimer = null, syncing = false, lastCloudAt = {};
 const setSync = t => { const e = $('sync'); if (e) e.textContent = t; };
 function markDirty(what){ if (!signedIn()) return; if (what === 'prefs') dirtyProfile = true; else if (what === 'both') dirtyAcct = dirtyProfile = true; else dirtyAcct = true; setSync('saving…'); clearTimeout(syncTimer); syncTimer = setTimeout(flushCloud, 1200); }
+let flushWarned = false;
 async function flushCloud(){
   if (!signedIn() || syncing) return; syncing = true; clearTimeout(syncTimer);
   try {
     if (dirtyAcct) { dirtyAcct = false; const name = activeAcct; const r = await backend.saveAccount({ name, size: acctSize(), state: snapshot() }); if (r?.updatedAt) lastCloudAt[name] = r.updatedAt; }
     if (dirtyProfile) { dirtyProfile = false; await backend.saveProfile(prefsObj()); }
-    setSync('synced');
+    setSync('synced'); flushWarned = false;
   } catch (e) {
     if (isAuthError(e)) { syncing = false; toast('Session expired — sign in again'); return logout(); }
     dirtyAcct = dirtyProfile = true; setSync('offline — will retry'); syncTimer = setTimeout(flushCloud, 10000);
+    if (!flushWarned) { flushWarned = true; toast('Not saved to ' + backend.label + ': ' + (e.message || 'no connection') + '. Retrying.'); }
   } finally { syncing = false; if ((dirtyAcct || dirtyProfile) && !syncTimer) syncTimer = setTimeout(flushCloud, 1200); }
 }
 window.addEventListener('pagehide', () => { if (dirtyAcct || dirtyProfile) flushCloud(); });
@@ -941,7 +943,7 @@ function openBackendModal(){
   const sync=()=>{ const k=m.querySelector('[name=bk]:checked').value; $('bk-express').style.display = k==='express'?'block':'none'; $('bk-b4a').style.display = k==='back4app'?'block':'none'; }; m.querySelectorAll('[name=bk]').forEach(r=>r.onchange=sync); sync();
   $('bk-err').textContent=''; m.style.display='flex';
 }
-{ const m=$('backendModal'); if(m){ m.onclick=e=>{ if(e.target===m) m.style.display='none'; }; $('bk-close').onclick=()=>m.style.display='none';
+{ const m=$('backendModal'); if(m){ m.onclick=e=>{ if(e.target===m) m.style.display='none'; }; $('bk-close').onclick=()=>m.style.display='none'; const rs=$('bk-reset'); if(rs) rs.onclick=()=>{ resetBackendSettings(); try { localStorage.removeItem('ms_api'); } catch {} session.clear(); location.reload(); };
   $('bk-save').onclick=()=>{ const k=m.querySelector('[name=bk]:checked').value; if(k==='back4app' && (!$('bk-app').value.trim() || !$('bk-key').value.trim())){ $('bk-err').textContent='Paste both the Application ID and the JavaScript key.'; return; }
     saveBackendSettings({ backend:k, expressUrl:$('bk-url').value.trim().replace(/\/$/,''), back4app:{ appId:$('bk-app').value.trim(), jsKey:$('bk-key').value.trim(), serverUrl:($('bk-srv').value.trim()||'https://parseapi.back4app.com') } }); try { localStorage.removeItem('ms_api'); } catch {} session.clear(); location.reload(); }; } }
 $('setapi').onclick = openBackendModal; { const l=$('auth-server'); if(l) l.onclick=e=>{ e.preventDefault(); openBackendModal(); }; }

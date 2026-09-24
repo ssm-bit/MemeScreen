@@ -1,7 +1,8 @@
 # Sets up the Expo shell for MemeScreen and starts everything needed to open it on phones with Expo Go.
 # Any number of phones can scan the same QR code. They only need to be on the same Wi-Fi / hotspot as this laptop.
 # Safe to run again: it skips whatever is already done.
-param([switch]$Anywhere)
+param([switch]$Anywhere, [switch]$Local)
+# -Local    : serve the website from this laptop (npm run dev) instead of the hosted site on GitHub Pages.
 # -Anywhere : for school / office Wi-Fi that blocks phones from reaching a laptop. Puts the website and Expo behind
 #             secure public tunnels, so a phone on ANY network (NJIT Wi-Fi, cellular, home) can scan and join.
 $ErrorActionPreference = 'Stop'
@@ -43,18 +44,22 @@ Pop-Location
 
 Step 'Starting the MemeScreen server and website in their own windows'
 $busy4000 = Get-NetTCPConnection -LocalPort 4000 -State Listen -ErrorAction SilentlyContinue
+$webUrl = "http://${ip}:5173"
+$hostedFile = Join-Path $root 'hosted-url.txt'
+$hosted = if (Test-Path $hostedFile) { (Get-Content $hostedFile -Raw).Trim().TrimEnd('/') } else { 'https://ssm-bit.github.io/MemeScreen' }   # GitHub Pages, published by the repo's workflow on every push
+if ($Local) { $hosted = '' }
+if ($hosted -match '^https://') {
+  try { $null = Invoke-WebRequest "$hosted/" -UseBasicParsing -TimeoutSec 10; $webUrl = $hosted; Write-Host "Using the hosted site: $webUrl  (phones load the app from there, from any location, no laptop needed for the website)" -ForegroundColor Green }
+  catch { Write-Host "Hosted site not reachable at $hosted (is GitHub Pages turned on for the repo?). Using this laptop instead." -ForegroundColor Yellow; $hosted = '' }
+}
 $busy5173 = Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue
 $cfg = Get-Content (Join-Path $app 'src\config.js') -Raw
 $useB4A = $cfg -match "appId:\s*'[^']+'"
 if ($useB4A) { Write-Host 'Backend is Back4App, so the local API server is not needed.' }
 elseif (-not $busy4000) { Start-Process cmd -ArgumentList '/k', "title MemeScreen API && cd /d `"$app\server`" && npm start" } else { Write-Host 'Server already running on 4000.' }
 if ($busy5173 -and $Anywhere) { Write-Host 'The website window is already open. If it was started before this update, close it and run this file again, or phones will see a "Blocked request" page.' -ForegroundColor Yellow }
-if (-not $busy5173) { Start-Process cmd -ArgumentList '/k', "title MemeScreen web && cd /d `"$app`" && npm run dev" } else { Write-Host 'Website already running on 5173. If it was started before today, close that window and run this again so it picks up the latest code.' -ForegroundColor Yellow }
+if ($hosted) { Write-Host "Website: hosted, nothing to start on this laptop." } elseif (-not $busy5173) { Start-Process cmd -ArgumentList '/k', "title MemeScreen web && cd /d `"$app`" && npm run dev" } else { Write-Host 'Website already running on 5173. If it was started before today, close that window and run this again so it picks up the latest code.' -ForegroundColor Yellow }
 
-$webUrl = "http://${ip}:5173"
-$hostedFile = Join-Path $root 'hosted-url.txt'
-$hosted = if (Test-Path $hostedFile) { (Get-Content $hostedFile -Raw).Trim().TrimEnd('/') } else { '' }
-if ($hosted -match '^https://') { $webUrl = $hosted; Write-Host "Using the hosted site: $webUrl  (phones load the app from there, from any location)" -ForegroundColor Green }
 if ($Anywhere -and -not $hosted) {
   Step 'Opening a secure public tunnel to the website (Cloudflare quick tunnel, no account needed)'
   $cf = Join-Path $root 'cloudflared.exe'
@@ -151,7 +156,7 @@ foreach ($s in ($slots | Select-Object -Skip 1)) {
   Start-Process cmd -ArgumentList '/k', "title Expo for $($s.who) (port $($s.port)) && cd /d `"$expo`" && set __UNSAFE_EXPO_HOME_DIRECTORY=$h&& set MS_EXPO_OWNER=$($s.who)&& set MS_EXPO_PROJECT_ID=$($s.projId)&& npx expo start $mode --port $($s.port)"
 }
 $acctParam = ($slots | Where-Object { $_.who } | ForEach-Object { "$($_.who)@$($_.port)" }) -join ','
-if ($Anywhere) { $join = "$webUrl/join.html?web=$webUrl/?m=1" } else { $join = "http://${ip}:5173/join.html?accts=$acctParam" }
+if ($Anywhere) { $join = "$webUrl/join.html?web=$webUrl/?m=1" } elseif ($hosted) { $join = "$webUrl/join.html?accts=$acctParam&host=$ip&web=$webUrl/?m=1" } else { $join = "http://${ip}:5173/join.html?accts=$acctParam" }
 Write-Host ""
 Write-Host "Join page for the projector:  $join" -ForegroundColor Green
 if ($Anywhere) { Write-Host "Tunnel mode: each Expo window shows its own QR code. Each person scans the window titled with THEIR Expo account." -ForegroundColor Yellow }

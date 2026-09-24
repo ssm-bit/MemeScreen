@@ -11,7 +11,7 @@
 // You can also set / change this at runtime in the app: Settings → Server.
 // ============================================================
 export default {
-  backend: 'auto',                       // 'auto' | 'back4app' | 'express'
+  backend: 'back4app',                   // 'auto' | 'back4app' | 'express'
   back4app: {
     appId: 'CRzmZVtYdNTKZ8UJiFiAdzayCn68qcxqomDh3TBw',                           // Application ID
     jsKey: 'd5ZabG61ROOuG6wxyhZT0krGp3faDiNOyTdovytV',                           // JavaScript key  (NOT the master key — never put the master key in a web app)

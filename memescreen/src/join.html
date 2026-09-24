@@ -75,10 +75,10 @@
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 <script>
 const $ = id => document.getElementById(id), q = new URLSearchParams(location.search);
-const host = location.hostname, local = /^(localhost|127\.|\[?::1)/.test(host);
+const host = q.get('host') || location.hostname, local = /^(localhost|127\.|\[?::1)/.test(host);   // ?host= is the laptop address when this page is served from the hosted site
 const tunneled = /trycloudflare\.com$|ngrok|loca\.lt$/.test(host);
 const defExpo = q.get('exp') || (tunneled ? '' : 'exp://' + host + ':8081');
-const defWeb  = q.get('web') || (location.protocol + '//' + location.host + '/?m=1');
+const defWeb  = q.get('web') || new URL('./?m=1', location.href).href;
 function draw(id, text){ const el = $(id); el.innerHTML = ''; el.style.color = '#333'; if (!text) { el.textContent = mode === 'out' ? 'No code for this case right now. Use the No install code on the right, or make a free Expo account and use the other tab.' : 'Paste the exp:// address that the Expo window prints into the box below, then press Update codes.'; return; } if (typeof qrcode === 'undefined') { el.textContent = 'QR library did not load (needs internet). Type the address below into the phone.'; el.style.color = '#333'; return; }
   const qr = qrcode(0, 'M'); qr.addData(text); qr.make(); el.innerHTML = qr.createImgTag(8, 0); }
 // accts=nae23@8081,sam@8082  -> one tab + one code per Expo account (each account has its own Expo server on the laptop)

@@ -1,6 +1,7 @@
 // MemeScreen — Expo shell for iPhone / Android.
 // Shows the MemeScreen phone app full screen and turns its alerts into real phone notifications.
-// 1) Change APP_URL to the "Network:" address that `npm run dev` prints on your laptop, and keep the ?m=1 on the end.
+// APP_URL is the hosted site on GitHub Pages, so the phone app works from anywhere with no laptop.
+// The iPhone script swaps in a laptop address when it is run with -Local.
 import { useEffect, useRef } from 'react';
 import { Linking, Platform, StatusBar, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -10,7 +11,7 @@ import * as Notifications from 'expo-notifications';
 // belt and braces: the page already locks itself on a phone, this makes sure of it before anything paints
 const LOCK = `(function(){ var m=document.querySelector('meta[name=viewport]'); if(!m){ m=document.createElement('meta'); m.name='viewport'; (document.head||document.documentElement).appendChild(m); } m.content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover'; })(); true;`;
 
-const APP_URL = 'http://172.20.10.2:5173/?m=1';
+const APP_URL = 'https://ssm-bit.github.io/MemeScreen/?m=1';
 const APP_ORIGIN = APP_URL.replace(/^(https?:\/\/[^/]+).*$/, '$1');
 
 Notifications.setNotificationHandler({

@@ -15,16 +15,20 @@ const ls = { get(k){ try { return JSON.parse(localStorage.getItem(k)); } catch {
 
 // ---------- which backend ----------
 export function settings(){
-  const o = ls.get('ms_backend') || {};
+  // config.js is the source of truth. A choice made in the Server window is honoured only when it was saved
+  // explicitly (o.chosen) — an old leftover entry can no longer send the app to a server that is not running.
+  let o = ls.get('ms_backend') || {};
+  if (!o.chosen) o = {};
   const b4 = { ...CONFIG.back4app, ...(o.back4app||{}) };
-  let kind = o.backend || CONFIG.backend || 'auto';
+  let kind = (CONFIG.backend && CONFIG.backend !== 'auto' && !o.chosen) ? CONFIG.backend : (o.backend || CONFIG.backend || 'auto');
   if (kind === 'auto') kind = (b4.appId && b4.jsKey) ? 'back4app' : 'express';
   const legacy = (() => { try { return localStorage.getItem('ms_api'); } catch { return null; } })();
   const host = (location.protocol.startsWith('http') && location.hostname && !/(^|\.)localhost$/.test(location.hostname)) ? location.hostname : 'localhost';
   const expressUrl = (o.expressUrl || legacy || CONFIG.expressUrl || ('http://' + host + ':4000')).replace(/\/$/, '');
   return { kind, back4app: b4, expressUrl };
 }
-export function saveSettings(patch){ ls.set('ms_backend', { ...(ls.get('ms_backend')||{}), ...patch }); }
+export function saveSettings(patch){ ls.set('ms_backend', { ...(ls.get('ms_backend')||{}), ...patch, chosen:true }); }
+export function resetSettings(){ try { localStorage.removeItem('ms_backend'); } catch {} }
 
 // ---------- session ("keep me signed in") ----------
 // remember = true  → localStorage  (survives closing the browser)

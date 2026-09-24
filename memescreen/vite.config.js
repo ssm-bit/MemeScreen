@@ -1,8 +1,11 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
 
+// MS_BASE is the sub-path the site is served from. GitHub Pages serves the repo at /MemeScreen/, so the
+// Pages workflow sets MS_BASE=/MemeScreen/. Local dev and Netlify use the default '/'.
 export default defineConfig({
   root: 'src',
+  base: process.env.MS_BASE || '/',
   build: {
     outDir: '../dist',
     emptyOutDir: true,
