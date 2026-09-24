@@ -594,3 +594,10 @@ label.scr-name{display:block;font-size:12px;color:var(--t2);margin-bottom:10px}l
 .comprow{align-items:center}.joinbox{gap:8px}.joinbox input{flex:1;text-transform:uppercase;font-family:ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em}
 .legal{max-width:760px}.legal h2{font-size:18px;margin:22px 0 6px}.legal h2:first-child{margin-top:0}.legal p{color:var(--t2);line-height:1.6}
 .scr-head h2{font-size:22px;font-weight:600;text-transform:none;letter-spacing:-.01em;color:var(--t1)}
+
+/* wallet (Phantom, read-only) */
+.card.walletcard{display:block}
+.walletcard .whead{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:10px} .walletcard .whead h2{margin:0 0 4px} .walletcard .wbtns{display:flex;gap:6px}
+.wtag{display:inline-block;font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;padding:2px 7px;border-radius:999px;background:rgba(34,228,160,.14);color:var(--brand);margin-left:8px;vertical-align:middle}
+.walletcard .tblwrap{overflow-x:auto} .wallet tr.wrow[tabindex]{cursor:pointer} .wallet tr.wrow[tabindex]:hover td,.wallet tr.wrow[tabindex]:focus td{background:var(--raised)}
+.brokercard.ready{opacity:1;border-color:var(--border)} .brokercard.ready .bstat{color:var(--accent)}

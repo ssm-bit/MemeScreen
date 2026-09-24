@@ -3,6 +3,7 @@
 // ============================================================
 import * as DT from './drawtools.js';
 import * as SCR from './screener.js';
+import * as WAL from './wallet.js';
 import { createBackend, session, settings as backendSettings, saveSettings as saveBackendSettings, resetSettings as resetBackendSettings, isAuthError } from './backend.js';
 let backend = createBackend();
 
@@ -227,11 +228,11 @@ function checkLiquidations(){ for (const p of [...positions]) if (p.side === 'sh
 // Three layers:  in-memory  →  this browser (instant, works offline / for guests)  →  the cloud backend (signed-in users).
 //   account state (cash, positions, trades, orders…) is per paper account;  prefs (watchlist, alert rules, indicators) are per user.
 const userKey = () => (signedIn() && ME?.email) ? ME.email : 'guest';
-function prefsObj(){ return { watch:[...watch], rules, indi, activeAcct, screens: SCR.getScreens() }; }
+function prefsObj(){ return { watch:[...watch], rules, indi, activeAcct, screens: SCR.getScreens(), wallet: WAL.prefs() }; }
 function saveLocal(){ if (typeof activeAcct === 'undefined') return; saveActiveState(); store.set('ms_prefs_'+userKey(), { ...prefsObj(), alerts: alerts.slice(0,100), traderId }); }
 function save(what){ saveLocal(); markDirty(what || 'acct'); announce('state'); }
 function load(){ traderId = 't_' + Math.random().toString(36).slice(2,10); }
-function loadPrefs(){ const s = store.get('ms_prefs_'+userKey()) || (userKey()==='guest' ? store.get('ms_app') : null); if (!s) { watch = new Set(); alerts = []; return; } watch = new Set(s.watch||[]); alerts = s.alerts||[]; rules = Object.assign(rules, s.rules||{}); indi = Object.assign(indi, s.indi||{}); if (s.screens) SCR.setScreens(s.screens); traderId = s.traderId || traderId; }
+function loadPrefs(){ const s = store.get('ms_prefs_'+userKey()) || (userKey()==='guest' ? store.get('ms_app') : null); if (!s) { watch = new Set(); alerts = []; return; } watch = new Set(s.watch||[]); alerts = s.alerts||[]; rules = Object.assign(rules, s.rules||{}); indi = Object.assign(indi, s.indi||{}); if (s.screens) SCR.setScreens(s.screens); if (s.wallet) WAL.applyPrefs(s.wallet); traderId = s.traderId || traderId; }
 
 // ---- cloud sync (debounced; retries; last write wins per account) ----
 let dirtyAcct = false, dirtyProfile = false, syncTimer = null, syncing = false, lastCloudAt = {};
@@ -259,7 +260,7 @@ async function pullCloud({ keepActive = false } = {}){
   accounts = list.map(a => ({ id:a.name, size:+a.size || START }));
   for (const a of list) { if (a.state) store.set(acctKey(a.name), a.state); if (a.updatedAt) lastCloudAt[a.name] = a.updatedAt; }
   let prof = {}; try { prof = await backend.getProfile() || {}; } catch {}
-  if (prof.watch) watch = new Set(prof.watch); if (prof.rules) rules = Object.assign(rules, prof.rules); if (prof.indi) indi = Object.assign(indi, prof.indi); if (prof.screens) SCR.setScreens(prof.screens);
+  if (prof.watch) watch = new Set(prof.watch); if (prof.rules) rules = Object.assign(rules, prof.rules); if (prof.indi) indi = Object.assign(indi, prof.indi); if (prof.screens) SCR.setScreens(prof.screens); if (prof.wallet) WAL.applyPrefs(prof.wallet);
   if (!keepActive) activeAcct = (prof.activeAcct && accounts.find(a => a.id === prof.activeAcct)) ? prof.activeAcct : (accounts.find(a => a.id === activeAcct) ? activeAcct : 'main');
   if (!accounts.find(a => a.id === activeAcct)) activeAcct = 'main';
   saveAccounts(); loadActiveState(); relinkTokens(); setSync('synced');
@@ -395,6 +396,7 @@ async function renderComp(){
 
 // ---------- portfolio ----------
 function renderPortfolio(){
+  WAL.render();
   const B=baseline(); const eq = equity(), pnl = eq - B, closed = trades.filter(t => !t.open); const wins = closed.filter(t => t.pnl > 0).length; const fees = trades.reduce((s,t) => s + (t.fees||0), 0);
   $('pkpis').innerHTML = [['Equity', fmt(eq)], ['Total P&L', fmt(pnl) + ' (' + pct(pnl/B*100) + ')'], ['Win rate', closed.length ? Math.round(wins/closed.length*100) + '% of ' + closed.length : '—'], ['Fees paid', fmt(fees)], ['Open positions', positions.length], ['This week', pct((eq-weekStartEq)/weekStartEq*100)]].map(([k,v]) => `<div>${k}<b class="num">${v}</b></div>`).join('');
   const byg = {}; for (const t of closed) { byg[t.grade] = (byg[t.grade]||0) + (t.pnl||0); } const mx = Math.max(1, ...Object.values(byg).map(Math.abs));
@@ -524,6 +526,7 @@ function applyIndicators(){
 }
 // ---------- drawings (native overlays + TP/SL/order lines) ----------
 SCR.init({ tokens: () => tokens, select: t => { selected = t; show('trade'); render(); document.querySelector('.m-segs [data-seg=chart]')?.click(); }, toast, fireAlert, saveScreens: () => save('prefs'), signedIn });
+WAL.init({ grade, fetchPairs, gBadge, toast, openExternal, fmt, fmtP, fmtK, solUsd: () => solUsd, savePrefs: () => save('prefs'), select: t => { const have = tokens.find(x => x.addr === t.addr); if (!have) { t.grade = grade(t); tokens.push(t); } selected = have || t; show('trade'); render(); document.querySelector('.m-segs [data-seg=chart]')?.click(); } });
 function renderLegal(){ const el=$('legalBody'); if(!el || el.dataset.done) return; el.dataset.done='1';
   const del=$('deleteAcct'); if(del) del.onclick=async()=>{ if(!signedIn()) return toast('Guest data lives only in this browser. Clear the site data to remove it.'); if(!confirm('Delete your MemeScreen account and every paper account, trade and setting tied to it? This cannot be undone.')) return; const typed=prompt('Type DELETE to confirm'); if(typed!=='DELETE') return; try { await backend.deleteMe(); try { Object.keys(localStorage).filter(k=>k.startsWith('ms_')).forEach(k=>localStorage.removeItem(k)); } catch {} toast('Account deleted'); setTimeout(()=>location.reload(), 800); } catch(e){ toast(e.message||'Could not delete'); } }; }
 DT.init({ chart: () => KC, token: () => selected, supply: () => tokenSupply(selected), barMs: () => STEP[tf]*1000, fmtP, toast });
@@ -909,7 +912,7 @@ $('authform').onsubmit = async e => {
   } catch (err) { $('autherr').textContent = err.message; } finally { btn.disabled = false; btn.textContent = label; }
 };
 $('guest').onclick = enterGuest;
-function logout(){ const was = signedIn(); clearTimeout(syncTimer); dirtyAcct = dirtyProfile = false; if (was) backend.logout().catch(()=>{}); else session.clear(); TOKEN = null; ME = null; guest = false; localStorage.removeItem('ms_guest'); positions=[]; trades=[]; orders=[]; selected=null; announce('logout'); notifyHost({ type:'ms-signed-out' }); showLanding(); setMode('login'); }
+function logout(){ const was = signedIn(); clearTimeout(syncTimer); WAL.disconnect(false); dirtyAcct = dirtyProfile = false; if (was) backend.logout().catch(()=>{}); else session.clear(); TOKEN = null; ME = null; guest = false; localStorage.removeItem('ms_guest'); positions=[]; trades=[]; orders=[]; selected=null; announce('logout'); notifyHost({ type:'ms-signed-out' }); showLanding(); setMode('login'); }
 $('logout').onclick = logout;
 // ---------- broker picker ----------
 const BROKERS = [
@@ -924,10 +927,11 @@ const BROKERS = [
 // Real brokers are listed but not live yet: they render greyed out, and a connection attempt runs and then fails cleanly.
 const brokerState = {};   // name → 'connecting' | 'failed'
 function openBrokerModal(){ const g=$('brokerGrid'); if(!g) return;
-  const draw=()=>{ g.innerHTML = BROKERS.map(b=>{ const st=brokerState[b.name]; return `<button type="button" class="brokercard ${b.paper?'active':'soon'} ${st||''}" data-b="${b.name}" ${st==='connecting'?'disabled':''}>
-    <div class="brokericon">${b.paper?'<span class="bdot ok"></span>':(b.name[0])}</div><b>${b.name}</b><div class="hint">${b.desc}</div>
-    ${b.paper?'<div class="bstat ok">Connected</div>': st==='connecting'?'<div class="bstat"><span class="spin"></span> Connecting…</div>': st==='failed'?'<div class="bstat bad">Connection failed</div>':`<div class="bstat">★ ${b.rating} · Connect</div>`}</button>`; }).join('');
-    g.querySelectorAll('.brokercard').forEach(c=>c.onclick=()=>{ const n=c.dataset.b; if(c.classList.contains('active')){ toast('Paper trading is already connected'); return; }
+  const draw=()=>{ g.innerHTML = BROKERS.map(b=>{ const st=brokerState[b.name]; const ph = b.name==='Phantom' ? WAL.brokerCard() : null; const live = b.paper || !!ph; return `<button type="button" class="brokercard ${b.paper||ph?.state==='connected'?'active':live?'ready':'soon'} ${st||''}" data-b="${b.name}" ${st==='connecting'?'disabled':''}>
+    <div class="brokericon">${b.paper||ph?.state==='connected'?'<span class="bdot ok"></span>':(b.name[0])}</div><b>${b.name}</b><div class="hint">${ph ? 'Solana wallet · read-only' : b.desc}</div>
+    ${b.paper?'<div class="bstat ok">Connected</div>': st==='connecting'?'<div class="bstat"><span class="spin"></span> Connecting…</div>': st==='failed'?'<div class="bstat bad">Connection failed</div>': ph ? `<div class="bstat ${ph.state==='connected'?'ok':''}">${ph.label}</div>` : `<div class="bstat">★ ${b.rating} · Connect</div>`}</button>`; }).join('');
+    g.querySelectorAll('.brokercard').forEach(c=>c.onclick=async ()=>{ const n=c.dataset.b; if(c.classList.contains('active')){ toast('Paper trading is already connected'); return; }
+      if(n==='Phantom'){ brokerState[n]='connecting'; draw(); $('brokerMsg').textContent='Waiting for Phantom…'; try { const msg = await WAL.brokerClick(); brokerState[n]=null; draw(); $('brokerMsg').textContent=msg; if (WAL.connected()) { show('portfolio'); $('brokerModal').style.display='none'; } } catch(e){ brokerState[n]=null; draw(); $('brokerMsg').innerHTML='<span class="warn">'+esc(e.message||'Phantom refused the connection')+'</span>'; } return; }
       brokerState[n]='connecting'; draw(); $('brokerMsg').textContent='Contacting '+n+'…';
       setTimeout(()=>{ brokerState[n]='failed'; draw(); $('brokerMsg').innerHTML='<span class="warn">Couldn\'t connect to '+n+'.</span> Live broker connections aren\'t available yet — MemeScreen is paper trading only for now. Your paper account is unaffected.'; }, 1600); }); };
   draw(); $('brokerMsg').textContent='Pick a broker to connect. Paper Trading is always available.'; $('brokerModal').style.display='flex';
