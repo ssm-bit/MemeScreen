@@ -17,7 +17,8 @@ import bs58 from 'bs58';
 // belt and braces: the page already locks itself on a phone, this makes sure of it before anything paints
 const LOCK = `(function(){ var m=document.querySelector('meta[name=viewport]'); if(!m){ m=document.createElement('meta'); m.name='viewport'; (document.head||document.documentElement).appendChild(m); } m.content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover'; })(); true;`;
 
-const SHELL_VERSION = '3';   // shown in the app under Settings → Notifications, so an old shell is easy to spot
+const SHELL_VERSION = '5';
+const FALLBACK_PROJECT_ID = 'ba75b1bb-0046-4852-8543-a10363235b2b';   // the team's Expo project (nae23); used when app.json has none   // shown in the app under Settings → Notifications, so an old shell is easy to spot
 const APP_URL = 'https://ssm-bit.github.io/MemeScreen/?m=1';
 const APP_ORIGIN = APP_URL.replace(/^(https?:\/\/[^/]+).*$/, '$1');
 
@@ -84,8 +85,9 @@ export default function App() {
   const registerPush = async () => {
     try {
       const perm = await Notifications.requestPermissionsAsync(); if (!perm.granted) return tell({ type: 'push-token', error: 'notifications not allowed' });
-      const projectId = Constants.expoConfig?.extra?.eas?.projectId || Constants.easConfig?.projectId;
-      const t = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
+      const projectId = Constants.expoConfig?.extra?.eas?.projectId || Constants.easConfig?.projectId || Constants.manifest2?.extra?.eas?.projectId || FALLBACK_PROJECT_ID;
+      if (!projectId) return tell({ type: 'push-token', error: 'no Expo project id — run Put-MemeScreen-on-iPhone.bat again so it links the project (or run: npx eas init in memescreen-phone)' });
+      const t = await Notifications.getExpoPushTokenAsync({ projectId });
       pushToken.current = t.data;
       tell({ type: 'push-token', token: t.data, platform: Platform.OS });
     } catch (e) { tell({ type: 'push-token', error: e.message }); }
