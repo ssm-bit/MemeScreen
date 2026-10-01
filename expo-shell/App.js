@@ -17,6 +17,7 @@ import bs58 from 'bs58';
 // belt and braces: the page already locks itself on a phone, this makes sure of it before anything paints
 const LOCK = `(function(){ var m=document.querySelector('meta[name=viewport]'); if(!m){ m=document.createElement('meta'); m.name='viewport'; (document.head||document.documentElement).appendChild(m); } m.content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover'; })(); true;`;
 
+const SHELL_VERSION = '3';   // shown in the app under Settings → Notifications, so an old shell is easy to spot
 const APP_URL = 'https://ssm-bit.github.io/MemeScreen/?m=1';
 const APP_ORIGIN = APP_URL.replace(/^(https?:\/\/[^/]+).*$/, '$1');
 
@@ -73,13 +74,19 @@ function phantomSignDecode(url) {
 
 export default function App() {
   const web = useRef(null);
+  const pushToken = useRef(null);
+  const pendingWallet = useRef(null);     // wallet result waiting for the page to acknowledge it
   const tell = msg => { try { web.current?.injectJavaScript(`window.postMessage(${JSON.stringify({ source: 'phone-os', ...msg })}, location.origin); true;`); } catch {} };
+  const hello = () => tell({ type: 'shell-hello', version: SHELL_VERSION, platform: Platform.OS, pushToken: pushToken.current });
+  // the page may have been reloaded while Phantom was open: keep sending the wallet until the page says it got it
+  const deliverWallet = r => { pendingWallet.current = r; let n = 0; const t = setInterval(() => { if (!pendingWallet.current || n++ > 20) return clearInterval(t); tell({ type: 'wallet', ...pendingWallet.current }); }, 1500); tell({ type: 'wallet', ...r }); };
   // Expo push token → the web app saves it to Back4App (PushDevice), the sendPush cloud function delivers through Expo
   const registerPush = async () => {
     try {
       const perm = await Notifications.requestPermissionsAsync(); if (!perm.granted) return tell({ type: 'push-token', error: 'notifications not allowed' });
       const projectId = Constants.expoConfig?.extra?.eas?.projectId || Constants.easConfig?.projectId;
       const t = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
+      pushToken.current = t.data;
       tell({ type: 'push-token', token: t.data, platform: Platform.OS });
     } catch (e) { tell({ type: 'push-token', error: e.message }); }
   };
@@ -95,7 +102,7 @@ export default function App() {
     const onUrl = ({ url }) => {
       if (!url) return;
       if (/phantom-sign/.test(url)) { const r = phantomSignDecode(url); tell({ type: 'wallet-signed', ...r }); return; }
-      if (/phantom/.test(url)) { const r = phantomDecode(url); if (r) tell({ type: 'wallet', ...r }); }
+      if (/phantom/.test(url)) { const r = phantomDecode(url); if (r) deliverWallet(r); }
     };
     const lsub = Linking.addEventListener('url', onUrl);
     Linking.getInitialURL().then(url => url && onUrl({ url }));
@@ -109,6 +116,7 @@ export default function App() {
     if (m.type === 'ms-wallet-connect') { Linking.openURL(phantomConnectUrl()).catch(() => tell({ type: 'wallet', error: 'Phantom is not installed' })); return; }
     if (m.type === 'ms-wallet-sign') { try { Linking.openURL(phantomSignUrl(m.tx, m.send)).catch(() => tell({ type: 'wallet-signed', error: 'Could not open Phantom' })); } catch (e) { tell({ type: 'wallet-signed', error: e.message }); } return; }
     if (m.type === 'ms-push-register') { registerPush(); return; }
+    if (m.type === 'ms-wallet-ack') { pendingWallet.current = null; return; }
     if (m.type === 'ms-wallet-disconnect') { phantomShared = null; phantomSession = null; return; }
     if (m.type !== 'ms-alert') return;
     Notifications.scheduleNotificationAsync({ content: { title: 'MemeScreen · ' + m.sym, body: m.msg, data: { addr: m.addr } }, trigger: null });
@@ -122,6 +130,7 @@ export default function App() {
           ref={web}
           source={{ uri: APP_URL }}
           onMessage={onMessage}
+          onLoadEnd={hello}
           // only the MemeScreen site may load inside the app; every other link (news, DexScreener, X) opens in Safari
           onShouldStartLoadWithRequest={req => { const ok = req.url.startsWith(APP_ORIGIN) || req.url.startsWith('about:'); if (!ok && /^https?:/i.test(req.url)) Linking.openURL(req.url).catch(() => {}); return ok; }}
           originWhitelist={['*']}

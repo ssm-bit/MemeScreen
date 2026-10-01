@@ -35,6 +35,7 @@ const signedIn = () => !!TOKEN && !guest;
 // ---------- constants (restored) ----------
 const START = 10000, PLATFORM = 0.01, LP = 0.003, NET = 0.10, GRADES = ['F','D','C','B','A'];
 let liveMode = false;   // true = the connected Phantom wallet is the active account (see setLiveMode)
+const BUILD = '2026-10-01d';   // shown in Settings and under the login form, so a phone on an old build is easy to spot
 const ICON = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="20" fill="#0A0D12"/><circle cx="50" cy="50" r="36" fill="none" stroke="#22E4A0" stroke-width="6"/><path d="M57 31L70 26" fill="none" stroke="#22E4A0" stroke-width="5" stroke-linecap="round"/><rect x="31" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><rect x="59" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><path d="M33 66Q50 68 67 58" fill="none" stroke="#22E4A0" stroke-width="5.5" stroke-linecap="round"/></svg>');
 
 // ---------- global news feed (ticker + alerts) ----------
@@ -232,11 +233,11 @@ function checkLiquidations(){ for (const p of [...positions]) if (p.side === 'sh
 // Three layers:  in-memory  →  this browser (instant, works offline / for guests)  →  the cloud backend (signed-in users).
 //   account state (cash, positions, trades, orders…) is per paper account;  prefs (watchlist, alert rules, indicators) are per user.
 const userKey = () => (signedIn() && ME?.email) ? ME.email : 'guest';
-function prefsObj(){ return { watch:[...watch], rules, indi, activeAcct, screens: SCR.getScreens(), wallet: WAL.prefs() }; }
+function prefsObj(){ return { watch:[...watch], rules, indi, activeAcct, screens: SCR.getScreens(), wallet: null }; }
 function saveLocal(){ if (typeof activeAcct === 'undefined') return; saveActiveState(); store.set('ms_prefs_'+userKey(), { ...prefsObj(), alerts: alerts.slice(0,100), traderId }); }
 function save(what){ saveLocal(); markDirty(what || 'acct'); announce('state'); }
 function load(){ traderId = 't_' + Math.random().toString(36).slice(2,10); }
-function loadPrefs(){ const s = store.get('ms_prefs_'+userKey()) || (userKey()==='guest' ? store.get('ms_app') : null); if (!s) { watch = new Set(); alerts = []; return; } watch = new Set(s.watch||[]); alerts = s.alerts||[]; rules = Object.assign(rules, s.rules||{}); indi = Object.assign(indi, s.indi||{}); if (s.screens) SCR.setScreens(s.screens); if (s.wallet) WAL.applyPrefs(s.wallet); traderId = s.traderId || traderId; }
+function loadPrefs(){ const s = store.get('ms_prefs_'+userKey()) || (userKey()==='guest' ? store.get('ms_app') : null); if (!s) { watch = new Set(); alerts = []; return; } watch = new Set(s.watch||[]); alerts = s.alerts||[]; rules = Object.assign(rules, s.rules||{}); indi = Object.assign(indi, s.indi||{}); if (s.screens) SCR.setScreens(s.screens); traderId = s.traderId || traderId; }
 
 // ---- cloud sync (debounced; retries; last write wins per account) ----
 let dirtyAcct = false, dirtyProfile = false, syncTimer = null, syncing = false, lastCloudAt = {};
@@ -264,7 +265,7 @@ async function pullCloud({ keepActive = false } = {}){
   accounts = list.map(a => ({ id:a.name, size:+a.size || START }));
   for (const a of list) { if (a.state) store.set(acctKey(a.name), a.state); if (a.updatedAt) lastCloudAt[a.name] = a.updatedAt; }
   let prof = {}; try { prof = await backend.getProfile() || {}; } catch {}
-  if (prof.watch) watch = new Set(prof.watch); if (prof.rules) rules = Object.assign(rules, prof.rules); if (prof.indi) indi = Object.assign(indi, prof.indi); if (prof.screens) SCR.setScreens(prof.screens); if (prof.wallet) WAL.applyPrefs(prof.wallet);
+  if (prof.watch) watch = new Set(prof.watch); if (prof.rules) rules = Object.assign(rules, prof.rules); if (prof.indi) indi = Object.assign(indi, prof.indi); if (prof.screens) SCR.setScreens(prof.screens);
   if (!keepActive) activeAcct = (prof.activeAcct && accounts.find(a => a.id === prof.activeAcct)) ? prof.activeAcct : (accounts.find(a => a.id === activeAcct) ? activeAcct : 'main');
   if (!accounts.find(a => a.id === activeAcct)) activeAcct = 'main';
   saveAccounts(); loadActiveState(); relinkTokens(); setSync('synced');
@@ -546,7 +547,7 @@ function applyIndicators(){
 }
 // ---------- drawings (native overlays + TP/SL/order lines) ----------
 SCR.init({ tokens: () => tokens, select: t => { selected = t; show('trade'); render(); document.querySelector('.m-segs [data-seg=chart]')?.click(); }, toast, fireAlert, saveScreens: () => save('prefs'), signedIn });
-WAL.init({ grade, fetchPairs, gBadge, toast, openExternal, fmt, fmtP, fmtK, solUsd: () => solUsd, savePrefs: () => save('prefs'), onChange: () => { renderAccountUI(); if (liveMode && !WAL.connected()) setLiveMode(false); if (!liveMode && WAL.connected() && !window.__liveRestored) { window.__liveRestored = true; try { if (localStorage.getItem('ms_livemode') === '1') setLiveMode(true); } catch {} } if (liveMode) { updateLive(); if (bottomTab==='positions') renderPositions(); } }, select: t => { const have = tokens.find(x => x.addr === t.addr); if (!have) { t.grade = grade(t); tokens.push(t); } selected = have || t; show('trade'); render(); document.querySelector('.m-segs [data-seg=chart]')?.click(); } });
+WAL.init({ grade, fetchPairs, gBadge, toast, openExternal, fmt, fmtP, fmtK, solUsd: () => solUsd, savePrefs: () => save('prefs'), onChange: () => { renderAccountUI(); if (liveMode && !WAL.connected()) setLiveMode(false); if (liveMode) { updateLive(); if (bottomTab==='positions') renderPositions(); } }, select: t => { const have = tokens.find(x => x.addr === t.addr); if (!have) { t.grade = grade(t); tokens.push(t); } selected = have || t; show('trade'); render(); document.querySelector('.m-segs [data-seg=chart]')?.click(); } });
 FEED.init({ sol: () => solUsd, price: (t, px) => { t.target = px; t.feedAt = Date.now(); } });   // tick() eases price → target, which also refreshes the header, list and candle
 function renderLegal(){ const el=$('legalBody'); if(!el || el.dataset.done) return; el.dataset.done='1';
   const del=$('deleteAcct'); if(del) del.onclick=async()=>{ if(!signedIn()) return toast('Guest data lives only in this browser. Clear the site data to remove it.'); if(!confirm('Delete your MemeScreen account and every paper account, trade and setting tied to it? This cannot be undone.')) return; const typed=prompt('Type DELETE to confirm'); if(typed!=='DELETE') return; try { await backend.deleteMe(); try { Object.keys(localStorage).filter(k=>k.startsWith('ms_')).forEach(k=>localStorage.removeItem(k)); } catch {} toast('Account deleted'); setTimeout(()=>location.reload(), 800); } catch(e){ toast(e.message||'Could not delete'); } }; }
@@ -751,7 +752,7 @@ function openWalletDeposit(){
 function setLiveMode(on){
   if (on && !WAL.connected()) { toast('Connect Phantom first (Broker)'); on = false; }
   if (liveMode === on) { renderAccountUI(); return; }
-  liveMode = on; try { localStorage.setItem('ms_livemode', on ? '1' : ''); } catch {}
+  liveMode = on;
   renderAccountUI(); render(); updateLive(); if ($('v-portfolio')?.classList.contains('on')) renderPortfolio();
   toast(on ? 'Live wallet · orders go to Phantom, test mode unless you tick Send for real' : 'Back to paper · ' + activeAcct);
 }
@@ -761,6 +762,7 @@ function renderAccountUI(){
     sel.onchange = () => { if (sel.value === '__wallet') setLiveMode(true); else { if (liveMode) setLiveMode(false); switchAccount(sel.value); } }; }
   const rb=$('reset'); if(rb) rb.textContent='Reset "'+activeAcct+'" to '+fmt(acctSize()).replace('.00','');
   const dp2=$('depositBtn2'); if(dp2) dp2.onclick=()=>$('depositBtn')?.click();
+  const bv=$('buildTag'); if(bv) bv.textContent='build '+BUILD;
   const wl=$('walletLine'); if(wl){ wl.innerHTML = WAL.connected() ? `Phantom <b>${esc(WAL.short(WAL.address()))}</b> connected · ${liveMode?'active (live)':'paper is active'} <button class="mini" id="wlDisc">Disconnect Phantom</button>` : 'No wallet connected. <button class="mini" id="wlConn">Connect Phantom</button>'; const d=$('wlDisc'); if(d) d.onclick=async ()=>{ await WAL.disconnect(true); if (liveMode) setLiveMode(false); renderAccountUI(); toast('Phantom disconnected'); }; const c=$('wlConn'); if(c) c.onclick=openBrokerModal; }
   const dp=$('depositBtn'); if(dp) dp.onclick=()=>{ if (liveMode) return openWalletDeposit(); const v=+prompt('Deposit how much paper money into "'+activeAcct+'"? (e.g. 100, 500, 5000)','500'); if(!(v>0)) return; deposit(v); };
   const wd=$('withdrawBtn'); if(wd) wd.onclick=()=>{ if (liveMode) return toast('Withdraw from Phantom itself — MemeScreen never moves wallet funds'); const v=+prompt('Withdraw how much paper money from "'+activeAcct+'"? Available cash: '+fmt(cash),'100'); if(!(v>0)) return; if(v>cash) return toast('Only '+fmt(cash)+' is free to withdraw'); deposit(-v); };
@@ -1012,7 +1014,7 @@ function enterGuest(){ const l=$('landing'); if(l) l.style.display='none'; guest
 
 // ---------- auth UI ----------
 window.__authMode = window.__authMode || 'login';
-function showAuth(){ const l=$('landing'); if(l) l.style.display='none'; $('auth').style.display = 'flex'; $('app').style.display = 'none'; const bk=$('auth-back'); if(bk) bk.style.display = onPhone() ? 'none' : ''; checkServer(); }
+function showAuth(){ const bt=$('buildTag2'); if(bt) bt.textContent='build '+BUILD; const l=$('landing'); if(l) l.style.display='none'; $('auth').style.display = 'flex'; $('app').style.display = 'none'; const bk=$('auth-back'); if(bk) bk.style.display = onPhone() ? 'none' : ''; checkServer(); }
 function showApp(){ $('auth').style.display = 'none'; $('app').style.display = 'block'; }
 function setMode(m){ window.__authMode = m; $('tab-login').classList.toggle('on', m==='login'); $('tab-reg').classList.toggle('on', m==='reg'); $('nick-l').style.display = m==='reg'?'block':'none';
   // forgot = email only; newpass = password only (arrived from a reset link on the Express server)
@@ -1059,8 +1061,7 @@ function openBrokerModal(){ const g=$('brokerGrid'); if(!g) return;
     ${b.paper?'<div class="bstat ok">Connected</div>': st==='connecting'?'<div class="bstat"><span class="spin"></span> Connecting…</div>': st==='failed'?'<div class="bstat bad">Connection failed</div>': ph ? `<div class="bstat ${ph.state==='connected'?'ok':''}">${ph.label}</div>` : `<div class="bstat">★ ${b.rating} · Connect</div>`}</button>`; }).join('');
     g.querySelectorAll('.brokercard').forEach(c=>c.onclick=async ()=>{ const n=c.dataset.b; if(c.classList.contains('active') && n!=='Phantom'){ toast('Paper trading is always connected'); return; }
       if(n==='Phantom'){
-        if (WAL.connected()) { $('brokerMsg').innerHTML = `Phantom <b>${esc(WAL.short(WAL.address()))}</b> is connected. <button class="mini primary" id="bkSwitch">${liveMode?'Trading live':'Switch to live wallet'}</button> <button class="mini" id="bkPaper" ${liveMode?'':'disabled'}>Back to paper</button> <button class="mini" id="bkDisc">Disconnect</button>`;
-          $('bkSwitch').onclick=()=>{ setLiveMode(true); $('brokerModal').style.display='none'; show('trade'); }; $('bkPaper').onclick=()=>{ setLiveMode(false); draw(); c.click(); }; $('bkDisc').onclick=async ()=>{ await WAL.disconnect(true); if (liveMode) setLiveMode(false); draw(); $('brokerMsg').textContent='Phantom disconnected. Paper trading is active.'; }; return; }
+        if (WAL.connected()) { await WAL.disconnect(true); if (liveMode) setLiveMode(false); draw(); $('brokerMsg').textContent='Phantom disconnected. Paper trading is active.'; return; }
         brokerState[n]='connecting'; draw(); $('brokerMsg').textContent='Waiting for Phantom…';
         const done = setTimeout(()=>{ if (brokerState[n]==='connecting') { brokerState[n]=null; draw(); $('brokerMsg').textContent='Still waiting for Phantom. If nothing opened, tap Phantom again.'; } }, 20000);
         try { const msg = await WAL.brokerClick(); clearTimeout(done); brokerState[n]=null; draw(); $('brokerMsg').textContent=msg; if (WAL.connected()) { setLiveMode(true); $('brokerModal').style.display='none'; show('trade'); } } catch(e){ clearTimeout(done); brokerState[n]=null; draw(); $('brokerMsg').innerHTML='<span class="warn">'+esc(e.message||'Phantom refused the connection')+'</span>'; } return; }
