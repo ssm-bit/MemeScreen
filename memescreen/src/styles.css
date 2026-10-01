@@ -607,3 +607,5 @@ label.scr-name{display:block;font-size:12px;color:var(--t2);margin-bottom:10px}l
 /* live ticket */
 .ticket.live{border:1px solid rgba(34,228,160,.35)} .livehead{font-size:12px;color:var(--t2);margin-bottom:8px} .livetag{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.06em;padding:2px 6px;border-radius:4px;background:var(--brand);color:#0C0E12;margin-right:6px}
 .ticket.live .ordtab.on{color:var(--brand)}
+
+.envbanner{background:#2b2410;color:#f5c542;border-bottom:1px solid #4a3d14;padding:8px 14px;font-size:12px;line-height:1.4} .envbanner a{color:#f5c542;text-decoration:underline} .envbanner button{float:right;margin-left:8px}

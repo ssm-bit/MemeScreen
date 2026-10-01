@@ -118,13 +118,13 @@
       <button id="guest" type="button" class="ghost">Browse as guest</button>
       <div class="auth-switch" id="auth-switch"></div>
       <div class="authnote">Paper trading only — no real funds. A connected Phantom wallet is read-only. Passwords are stored only as a bcrypt hash.</div>
-      <div class="srvstate"><span id="srvstate"></span> · <a href="#" id="auth-server">change</a></div>
+      <div class="srvstate"><span id="srvstate"></span> · <a href="#" id="auth-server">change</a> · <span id="buildTag2"></span></div>
     </div>
   </main>
 </div>
 
 <!-- APP -->
-<div id="app" style="display:none">
+<div id="app" style="display:none"><div id="envBanner" class="envbanner" style="display:none"></div>
   <header>
     <div class="logo"><svg width="30" height="30" viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="36" fill="none" stroke="#22E4A0" stroke-width="6"/><path d="M57 31L70 26" fill="none" stroke="#22E4A0" stroke-width="5" stroke-linecap="round"/><rect x="31" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><rect x="59" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><path d="M33 66Q50 68 67 58" fill="none" stroke="#22E4A0" stroke-width="5.5" stroke-linecap="round"/></svg>Meme<span>Screen</span></div>
     <nav id="nav">
@@ -215,7 +215,7 @@
     </section></div>
     <div class="view" id="v-settings"><section>
       <div class="grid2">
-        <div class="card"><h3>Account</h3><div id="acct" class="hint"></div><div id="walletLine" class="hint" style="margin-top:6px"></div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="mini primary" id="depositBtn2">Deposit</button><button class="mini" id="withdrawBtn">Withdraw</button></div><div class="hint" style="margin-top:6px">Deposits add paper money to the active account (any amount, so you can trade small). On the live wallet, Deposit shows your Phantom address.</div><h3 style="margin-top:18px">Paper trading accounts</h3><div class="hint" style="margin-bottom:8px">Create separate paper portfolios, like TradingView. Switch between them from the header.</div><div id="acctMgr"></div><h3 style="margin-top:18px">Connect a broker</h3><div class="hint" style="margin-bottom:8px">Trade memecoins for real through a connected wallet or broker. Coming later — paper only for now.</div><button class="mini" id="connectBroker">Connect broker</button></div>
+        <div class="card"><h3>Account</h3><div id="acct" class="hint"></div><div id="walletLine" class="hint" style="margin-top:6px"></div><div id="buildTag" class="hint" style="margin-top:4px;opacity:.6"></div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="mini primary" id="depositBtn2">Deposit</button><button class="mini" id="withdrawBtn">Withdraw</button></div><div class="hint" style="margin-top:6px">Deposits add paper money to the active account (any amount, so you can trade small). On the live wallet, Deposit shows your Phantom address.</div><h3 style="margin-top:18px">Paper trading accounts</h3><div class="hint" style="margin-bottom:8px">Create separate paper portfolios, like TradingView. Switch between them from the header.</div><div id="acctMgr"></div><h3 style="margin-top:18px">Connect a broker</h3><div class="hint" id="brokerStatus" style="margin-bottom:8px">Phantom connects for real (read holdings, live orders through Jupiter). Other brokers are listed but not live yet.</div><button class="mini" id="connectBroker">Connect broker</button></div>
         <div class="card"><h3>Notifications & alerts</h3><div id="notifstate" class="hint" style="margin-bottom:10px"></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="primary" id="enable">Enable browser notifications</button><button id="testn">Send a test</button></div><h2 style="margin-top:16px">Rules</h2><div id="rules"></div><h2 style="margin-top:16px">Recent alerts</h2><div id="alog" style="max-height:200px;overflow:auto"></div><h3 style="margin-top:18px">Fees model</h3><div class="row"><span>Platform fee</span><b class="num">1.0%</b></div><div class="row"><span>LP fee</span><b class="num">0.3%</b></div><div class="row"><span>Network fee</span><b class="num">$0.10</b></div><h3 style="margin-top:18px">Legal</h3><div class="hint" style="margin-bottom:8px">Privacy policy, terms of service, accessibility and data deletion.</div><button class="mini" data-legal>View legal &amp; privacy</button><h3 style="margin-top:18px">Server</h3><div class="row"><span>Backend</span><b class="num" id="apiurl"></b></div><button id="setapi" class="mini">Change server</button><div style="margin-top:14px"><button class="danger" id="reset">Reset this account to $10,000</button></div></div>
       </div>
     </section></div>

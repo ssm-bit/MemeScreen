@@ -35,7 +35,7 @@ const signedIn = () => !!TOKEN && !guest;
 // ---------- constants (restored) ----------
 const START = 10000, PLATFORM = 0.01, LP = 0.003, NET = 0.10, GRADES = ['F','D','C','B','A'];
 let liveMode = false;   // true = the connected Phantom wallet is the active account (see setLiveMode)
-const BUILD = '2026-10-01d';   // shown in Settings and under the login form, so a phone on an old build is easy to spot
+const BUILD = '2026-10-01e';   // shown in Settings and under the login form, so a phone on an old build is easy to spot
 const ICON = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="20" fill="#0A0D12"/><circle cx="50" cy="50" r="36" fill="none" stroke="#22E4A0" stroke-width="6"/><path d="M57 31L70 26" fill="none" stroke="#22E4A0" stroke-width="5" stroke-linecap="round"/><rect x="31" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><rect x="59" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><path d="M33 66Q50 68 67 58" fill="none" stroke="#22E4A0" stroke-width="5.5" stroke-linecap="round"/></svg>');
 
 // ---------- global news feed (ticker + alerts) ----------
@@ -91,7 +91,9 @@ function notifyHost(msg){ try { if (window.ReactNativeWebView) window.ReactNativ
 // would replace the app with the web page, so links are routed through here instead.
 function openExternal(url){ if (!url || url === '#') return; if (window.ReactNativeWebView) { try { window.ReactNativeWebView.postMessage(JSON.stringify({ source:'memescreen', type:'ms-open-url', url })); } catch {} return; } const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.dataset.ext = '1'; a.style.display = 'none'; document.body.appendChild(a); a.click(); a.remove(); }
 document.addEventListener('click', e => { const a = e.target.closest && e.target.closest('a[href]'); if (!a || a.dataset.ext) return; const href = a.getAttribute('href') || ''; if (!/^https?:/i.test(href)) return; e.preventDefault(); openExternal(a.href); }, true);
-window.addEventListener('message', e => { if (e.origin !== location.origin || e.data?.source !== 'phone-os') return; if (e.data.type === 'open-token') openTokenFromAlert(e.data.addr); if (e.data.type === 'push-token') { if (e.data.token && signedIn()) backend.savePushDevice({ token: e.data.token, platform: e.data.platform }).then(() => { try { localStorage.setItem('ms_push_' + userKey(), e.data.token); } catch {} toast('This phone is registered for push alerts'); }).catch(err => toast('Push registration failed: ' + err.message)); }
+window.addEventListener('message', e => { if (e.origin !== location.origin || e.data?.source !== 'phone-os') return; if (e.data.type === 'open-token') openTokenFromAlert(e.data.addr); if (e.data.type === 'shell-hello') { window.__shell = e.data; if (e.data.pushToken && signedIn()) { try { if (localStorage.getItem('ms_push_' + userKey()) !== e.data.pushToken) backend.savePushDevice({ token: e.data.pushToken, platform: e.data.platform }).then(() => { try { localStorage.setItem('ms_push_' + userKey(), e.data.pushToken); } catch {} notifState(); }).catch(() => {}); } catch {} } notifState(); }
+  if (e.data.type === 'wallet') notifyHost({ type:'ms-wallet-ack' });
+  if (e.data.type === 'push-token') { if (e.data.token && signedIn()) backend.savePushDevice({ token: e.data.token, platform: e.data.platform }).then(() => { try { localStorage.setItem('ms_push_' + userKey(), e.data.token); } catch {} toast('This phone is registered for push alerts'); notifState(); }).catch(err => toast('Push registration failed: ' + err.message)); else if (e.data.error) toast('Push: ' + e.data.error); }
   if (e.data.type === 'wallet') { if (e.data.pub) { WAL.setExternal(e.data.pub).then(() => { toast('Phantom connected · ' + WAL.short(e.data.pub)); const bm = $('brokerModal'); if (bm) bm.style.display = 'none'; setLiveMode(true); show('trade'); }); } else toast('Phantom: ' + (e.data.error || 'not connected')); } });
 
 // ---------- state ----------
@@ -313,7 +315,10 @@ async function sysNotify(title, body, tag, addr){
   try { if (swReg && swReg.active) { await swReg.showNotification(title, { body, icon: 'icon.svg', badge: 'icon.svg', tag, renotify: !!tag, data: { addr } }); return true; } } catch {}
   try { const n = new Notification(title, { body, icon: ICON, tag }); n.onclick = () => { n.close(); openTokenFromAlert(addr); }; return true; } catch { return false; }
 }
-function notifState(){ const el = $('notifstate'); if (!('Notification' in window)) { el.innerHTML = 'This browser does not support notifications. In-app alerts still work.'; return; } const p = Notification.permission; el.innerHTML = p === 'granted' ? '<span class="ok">Browser notifications are on.</span> Alerts show here and as system notifications, even when this tab is in the background.' : p === 'denied' ? '<span class="warn">Blocked.</span> Allow notifications for this site in your browser settings.' : 'Off. Enable to get system notifications when a watched memecoin moves.'; }
+function notifState(){ const el = $('notifstate');
+  if (window.ReactNativeWebView) { const sh = window.__shell; let tok = null; try { tok = localStorage.getItem('ms_push_' + userKey()); } catch {}
+    el.innerHTML = (sh ? `iPhone app shell build ${esc(sh.version)}. ` : '<span class="warn">iPhone app shell is an old build (run Put-MemeScreen-on-iPhone.bat again).</span> ') + (tok ? `<span class="ok">Push notifications are on for this phone.</span> Token ${esc(tok.slice(0, 22))}…` : 'Push is off on this phone. Press Enable to get the iOS permission prompt and register this phone.'); return; }
+  if (!('Notification' in window)) { el.innerHTML = 'This browser does not support notifications. In-app alerts still work.'; return; } const p = Notification.permission; el.innerHTML = p === 'granted' ? '<span class="ok">Browser notifications are on.</span> Alerts show here and as system notifications, even when this tab is in the background.' : p === 'denied' ? '<span class="warn">Blocked.</span> Allow notifications for this site in your browser settings.' : 'Off. Enable to get system notifications when a watched memecoin moves.'; }
 function fireAlert(kind, t, msg){
   const key = kind + ':' + t.addr; if (firedAt[key] && Date.now() - firedAt[key] < 300000) return; firedAt[key] = Date.now();
   const a = { kind, addr: t.addr, sym: t.sym, msg, at: Date.now() }; alerts.unshift(a); alerts = alerts.slice(0,100); unread++; $('abadge').style.display = ''; $('abadge').textContent = unread;
@@ -350,7 +355,8 @@ function askNotifications(){
   const m = $('notifModal'); if (!m) return;
   const key = 'ms_notif_asked_' + userKey(); let asked = null; try { asked = localStorage.getItem(key); } catch {}
   const already = !window.ReactNativeWebView && 'Notification' in window && Notification.permission !== 'default';
-  if (asked || already) return;
+  let tok = null; try { tok = localStorage.getItem('ms_push_' + userKey()); } catch {}
+  if (window.ReactNativeWebView) { if (asked === 'no' || tok) return; } else if (asked || already) return;
   m.style.display = 'flex';
   const done = v => { try { localStorage.setItem(key, v); } catch {} m.style.display = 'none'; };
   $('notifYes').onclick = () => { done('yes'); enableNotifications(); };
