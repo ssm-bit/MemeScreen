@@ -4,6 +4,7 @@
 import * as DT from './drawtools.js';
 import * as SCR from './screener.js';
 import * as WAL from './wallet.js';
+import * as FEED from './feed.js';
 import { createBackend, session, settings as backendSettings, saveSettings as saveBackendSettings, resetSettings as resetBackendSettings, isAuthError } from './backend.js';
 let backend = createBackend();
 
@@ -87,7 +88,7 @@ function notifyHost(msg){ try { if (window.ReactNativeWebView) window.ReactNativ
 // would replace the app with the web page, so links are routed through here instead.
 function openExternal(url){ if (!url || url === '#') return; if (window.ReactNativeWebView) { try { window.ReactNativeWebView.postMessage(JSON.stringify({ source:'memescreen', type:'ms-open-url', url })); } catch {} return; } const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.dataset.ext = '1'; a.style.display = 'none'; document.body.appendChild(a); a.click(); a.remove(); }
 document.addEventListener('click', e => { const a = e.target.closest && e.target.closest('a[href]'); if (!a || a.dataset.ext) return; const href = a.getAttribute('href') || ''; if (!/^https?:/i.test(href)) return; e.preventDefault(); openExternal(a.href); }, true);
-window.addEventListener('message', e => { if (e.origin !== location.origin || e.data?.source !== 'phone-os') return; if (e.data.type === 'open-token') openTokenFromAlert(e.data.addr); });
+window.addEventListener('message', e => { if (e.origin !== location.origin || e.data?.source !== 'phone-os') return; if (e.data.type === 'open-token') openTokenFromAlert(e.data.addr); if (e.data.type === 'wallet') { if (e.data.pub) { WAL.setExternal(e.data.pub).then(() => { toast('Phantom connected · ' + WAL.short(e.data.pub)); const bm = $('brokerModal'); if (bm) bm.style.display = 'none'; show('portfolio'); }); } else toast('Phantom: ' + (e.data.error || 'not connected')); } });
 
 // ---------- state ----------
 let cash = START, positions = [], trades = [], tokens = [], selected = null, sizeUsd = 250, live = false, tf = '5m', chartCache = {}, watch = new Set(), alerts = [], unread = 0;
@@ -127,7 +128,7 @@ function grade(t){
 }
 
 // ---------- data: DexScreener ----------
-function mapPair(q){ return { addr:q.baseToken.address, pair:q.pairAddress, sym:q.baseToken.symbol, name:q.baseToken.name, price:+q.priceUsd, liq:q.liquidity?.usd||0, vol24:q.volume?.h24||0, mcap:q.marketCap||q.fdv||0, buys:q.txns?.h1?.buys||0, sells:q.txns?.h1?.sells||0, buys5:q.txns?.m5?.buys||0, sells5:q.txns?.m5?.sells||0, vol5:q.volume?.m5||0, vol1:q.volume?.h1||0, boosts:q.boosts?.active||0, socials:(q.info?.socials||[]).length + (q.info?.websites||[]).length, ch1:q.priceChange?.h1||0, ch24:q.priceChange?.h24||0, created:q.pairCreatedAt||Date.now()-36e5, url:q.url }; }
+function mapPair(q){ return { addr:q.baseToken.address, pair:q.pairAddress, sym:q.baseToken.symbol, name:q.baseToken.name, price:+q.priceUsd, liq:q.liquidity?.usd||0, vol24:q.volume?.h24||0, mcap:q.marketCap||q.fdv||0, buys:q.txns?.h1?.buys||0, sells:q.txns?.h1?.sells||0, buys5:q.txns?.m5?.buys||0, sells5:q.txns?.m5?.sells||0, vol5:q.volume?.m5||0, vol1:q.volume?.h1||0, boosts:q.boosts?.active||0, socials:(q.info?.socials||[]).length + (q.info?.websites||[]).length, ch1:q.priceChange?.h1||0, ch24:q.priceChange?.h24||0, created:q.pairCreatedAt||Date.now()-36e5, url:q.url, dex:q.dexId||'', quote:q.quoteToken?.address||'' }; }
 async function fetchPairs(addrs){ const pairs = await (await fetch('https://api.dexscreener.com/tokens/v1/solana/' + addrs.slice(0,30).join(','))).json(); const best = {}; for (const q of pairs){ const a = q.baseToken?.address; if (!a || !q.priceUsd) continue; if (!best[a] || (q.liquidity?.usd||0) > best[a].liq) best[a] = mapPair(q); } return Object.values(best); }
 async function fetchLive(){
   const get = u => fetch(u).then(r=>r.json()).catch(()=>[]);
@@ -140,7 +141,7 @@ async function fetchLive(){
 const SIM = [['BONKZ','Bonk Zilla'],['WIFHAT','dog with hat'],['GPTCAT','ChatGPT Cat'],['PEPEAI','Pepe Agent'],['TRUMPY','Trumpy Coin'],['PIZZA','Pizza Time'],['FLOKI2','Floki Returns'],['MOONDOG','Moon Dog'],['SNEK','Snek'],['CAPY','Capybara']];
 function makeSim(){ return SIM.map(([sym,name],i) => { const price = [0.0000231,0.0042,0.31,0.00088,1.24,0.0031,0.000067,0.019,0.55,0.0009][i]; const liq = [3200,48000,210000,9500,620000,27000,1800,70000,340000,12000][i]; return { addr:'sim'+i, pair:'sim'+i, sym, name, price, target:price, liq, vol24: liq*(1+Math.random()*30), vol1: liq*(0.05+Math.random()*2), vol5: liq*(0.01+Math.random()*0.3), buys5: Math.round(Math.random()*40), sells5: Math.round(Math.random()*40), boosts: Math.round(Math.random()*5), socials: Math.round(Math.random()*3), mcap: liq*(3+Math.random()*80), buys:20+Math.round(Math.random()*300), sells:20+Math.round(Math.random()*300), ch1:(Math.random()-.5)*40, ch24:(Math.random()-.4)*120, created: Date.now()-Math.random()*3*864e5, url:'#' }; }); }
 function tickSim(){ for (const t of tokens){ const d = (Math.random()-.5)*0.06; t.target = (t.target||t.price)*(1+d); t.ch1 += d*100; } }
-function applyPair(list){ const map = Object.fromEntries(list.map(t => [t.addr, t])); for (const t of tokens) if (map[t.addr]) { const cur = t.price; Object.assign(t, map[t.addr], { grade: t.grade }); t.target = t.price; t.price = cur || t.target; } for (const p of positions) { const t = tokens.find(x => x.addr === p.addr); if (t) p.token = t; } }
+function applyPair(list){ const map = Object.fromEntries(list.map(t => [t.addr, t])); for (const t of tokens) if (map[t.addr]) { const cur = t.price, onchain = t.feedAt && Date.now() - t.feedAt < 10000, keep = onchain ? t.target : null; Object.assign(t, map[t.addr], { grade: t.grade, feedAt: t.feedAt }); t.target = onchain ? keep : t.price; t.price = cur || t.target; } for (const p of positions) { const t = tokens.find(x => x.addr === p.addr); if (t) p.token = t; } }
 async function refresh(){
   try { const list = await fetchLive(); for (const t of list) { const old = tokens.find(x => x.addr === t.addr); t.target = t.price; if (old) { t.price = old.price; t.whales = old.whales; } } tokens = list; live = true; $('dot').className = 'dot live'; }
   catch (e) { if (!tokens.length) { tokens = makeSim(); live = false; $('dot').className = 'dot sim'; $('feed').textContent = 'simulated data — live feed unavailable here; open the file directly in a browser (or host it) for live prices'; } else if (!live) tickSim(); }
@@ -488,9 +489,9 @@ function tokenSupply(t){ if(!t) return 1; if(supplyCache[t.addr]) return supplyC
 async function loadChart(t){
   if(!hasKC()) return;
   const key = t.addr + tf; const src = $('csrc');
-  if (!chartCache[key] || (Date.now() - chartCache[key].at > 60000 && chartCache[key].mode !== 'live')) {
+  if (!chartCache[key] || Date.now() - chartCache[key].at > (chartCache[key].mode === 'live' ? 30000 : 60000)) {
     if (!live || String(t.pair).startsWith('sim')) chartCache[key] = { at: Date.now(), candles: chartCache[key]?.candles || simCandles(t), mode: 'sim' };
-    else { try { const [unit, agg] = TF[tf]; const r = await fetch(`https://api.geckoterminal.com/api/v2/networks/solana/pools/${t.pair}/ohlcv/${unit}?aggregate=${agg}&limit=300&currency=usd`, { headers: { accept: 'application/json' } }); const j = await r.json(); const list = (j.data?.attributes?.ohlcv_list||[]).map(a => ({ t:a[0], o:+a[1], h:+a[2], l:+a[3], c:+a[4], v:+a[5] })).reverse(); if (!list.length) throw 0; chartCache[key] = { at: Date.now(), candles: list, mode: 'live' }; } catch { chartCache[key] = { at: Date.now(), candles: (chartCache[key]?.candles)||simCandles(t), mode: 'sim' }; } }
+    else { try { const [unit, agg] = TF[tf]; const r = await fetch(`https://api.geckoterminal.com/api/v2/networks/solana/pools/${t.pair}/ohlcv/${unit}?aggregate=${agg}&limit=300&currency=usd`, { headers: { accept: 'application/json' } }); const j = await r.json(); const list = (j.data?.attributes?.ohlcv_list||[]).map(a => ({ t:a[0], o:+a[1], h:+a[2], l:+a[3], c:+a[4], v:+a[5] })).reverse(); if (!list.length) throw 0; const old = chartCache[key], prev = old?.candles; let gap = false; if (prev?.length) { const last = prev[prev.length-1]; const sl = list[list.length-1]; gap = sl.t - last.t > STEP[tf]; if (last.t > sl.t) list.push(last); else if (last.t === sl.t) { sl.h = Math.max(sl.h, last.h); sl.l = Math.min(sl.l, last.l); sl.c = last.c; } } if (old && old.mode === 'live' && !gap) { old.candles = list; old.at = Date.now(); } else chartCache[key] = { at: Date.now(), candles: list, mode: 'live' }; } catch { chartCache[key] = { at: Date.now(), candles: (chartCache[key]?.candles)||simCandles(t), mode: 'sim' }; } }
   }
   const cc = chartCache[key]; if (selected?.addr !== t.addr) return;
   if (src) src.textContent = (cc.mode === 'live' ? 'Market cap · GeckoTerminal · PumpPortal' : 'Market cap · simulated');
@@ -527,6 +528,7 @@ function applyIndicators(){
 // ---------- drawings (native overlays + TP/SL/order lines) ----------
 SCR.init({ tokens: () => tokens, select: t => { selected = t; show('trade'); render(); document.querySelector('.m-segs [data-seg=chart]')?.click(); }, toast, fireAlert, saveScreens: () => save('prefs'), signedIn });
 WAL.init({ grade, fetchPairs, gBadge, toast, openExternal, fmt, fmtP, fmtK, solUsd: () => solUsd, savePrefs: () => save('prefs'), select: t => { const have = tokens.find(x => x.addr === t.addr); if (!have) { t.grade = grade(t); tokens.push(t); } selected = have || t; show('trade'); render(); document.querySelector('.m-segs [data-seg=chart]')?.click(); } });
+FEED.init({ sol: () => solUsd, price: (t, px) => { t.target = px; t.feedAt = Date.now(); } });   // tick() eases price → target, which also refreshes the header, list and candle
 function renderLegal(){ const el=$('legalBody'); if(!el || el.dataset.done) return; el.dataset.done='1';
   const del=$('deleteAcct'); if(del) del.onclick=async()=>{ if(!signedIn()) return toast('Guest data lives only in this browser. Clear the site data to remove it.'); if(!confirm('Delete your MemeScreen account and every paper account, trade and setting tied to it? This cannot be undone.')) return; const typed=prompt('Type DELETE to confirm'); if(typed!=='DELETE') return; try { await backend.deleteMe(); try { Object.keys(localStorage).filter(k=>k.startsWith('ms_')).forEach(k=>localStorage.removeItem(k)); } catch {} toast('Account deleted'); setTimeout(()=>location.reload(), 800); } catch(e){ toast(e.message||'Could not delete'); } }; }
 DT.init({ chart: () => KC, token: () => selected, supply: () => tokenSupply(selected), barMs: () => STEP[tf]*1000, fmtP, toast });
@@ -559,7 +561,9 @@ function applyDrawings(force){
 function tick(){
   let moved = false; for (const t of tokens) { if (t.target == null) t.target = t.price; if (t.price !== t.target) { t.price += (t.target - t.price)*0.35; if (Math.abs(t.price-t.target)/t.target < 1e-5) t.price = t.target; moved = true; } }
   for (const p of positions) { const t = tokens.find(x => x.addr === p.addr); if (t) p.token = t; }
+  if (live && (selected?.addr || null) !== FEED.current()) FEED.start(selected);
   if (selected) pushTick(selected); if (moved || streaming) updateLive();
+  const cs = $('csrc'); if (cs && live && FEED.status && selected && !String(selected.pair).startsWith('sim')) { const txt = 'Market cap · GeckoTerminal candles · ' + FEED.status + (selected.feedAt ? ' · ' + Math.max(0, Math.round((Date.now() - selected.feedAt) / 1000)) + 's ago' : ''); if (cs.textContent !== txt) cs.textContent = txt; }
 }
 function updateLive(){
   const B=baseline(); const eq = equity(), pnl = eq - B; const setT=(id,v)=>{ const e=$(id); if(e) e.textContent=v; }; const setC=(id,c)=>{ const e=$(id); if(e) e.className=c; }; setT('cash',fmt(cash)); setT('equity',fmt(eq)); setT('pnl',fmt(pnl)+' ('+pct(pnl/B*100)+')'); setC('pnl','num '+(pnl>=0?'up':'dn')); const wr=(eq-weekStartEq)/weekStartEq*100; setT('wk',pct(wr)); setC('wk','num '+(wr>=0?'up':'dn'));

@@ -56,6 +56,10 @@ cd .. && npm install && npm run dev                  # or: npm run tauri build
 
 Every user gets isolated data: any number of **paper-trading accounts** (each with its own starting balance, positions, orders and history), a watchlist, alert rules, and a place on the weekly / all-time leaderboards (the `main` account competes). State syncs to the backend a moment after every change and is pulled on login, so it follows you between the desktop site and the phone. "Keep me signed in" stores the session in localStorage; unticked, it lives in sessionStorage and ends with the browser.
 
+## Live prices
+
+The selected token's price comes from its pool on Solana (`src/feed.js`): pump.fun bonding-curve reserves, PumpSwap pool token accounts or Raydium AMM v4 vaults, read through the public RPC with `accountSubscribe` (push) and a 1.5 s poll as fallback. No key. Every other token uses DexScreener every 2 s. Closed candles come from GeckoTerminal and are re-fetched every 30 s. PumpPortal's trade stream is metered now, so it only contributes whale prints if it delivers anything.
+
 ## Charting
 
 `src/drawtools.js` adds a TradingView-style toolbar on top of KLineChart: cursors (cross / dot / arrow / eraser), trend-line tools (trend line, ray, info line, extended, arrow, horizontal line / ray, vertical, parallel channel, price channel), Fib retracement and trend-based extension, pitchfork, Schiff pitchfork, Gann box, rectangle / circle / triangle / parallelogram, text / callout / price note / arrow markers / flag, XABCD, head-and-shoulders, Elliott 12345 and ABC, triangle pattern, long / short position planners, price / date / date-and-price range. Magnet, lock, hide, delete-selected (Del), clear. Drawings are saved per token in the browser. Right-click (long-press on a phone) on empty chart space still opens the order menu; right-click on a drawing deletes it. ⛶ makes the chart full screen.

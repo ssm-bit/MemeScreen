@@ -18,6 +18,9 @@ let sol = 0, solUsd = 0, lastAt = 0, timer = null, busy = false, err = '';
 export const provider = () => (window.phantom && window.phantom.solana) || (window.solana && window.solana.isPhantom ? window.solana : null);
 export const isMobile = () => /iPhone|iPad|Android/i.test(navigator.userAgent);
 export const inPhantomBrowser = () => !!provider() && isMobile();
+export const inShell = () => !!window.ReactNativeWebView;   // the Expo app: Phantom connects through a deep link and comes back here
+// the Expo shell hands us the address after the deep-link handshake
+export async function setExternal(addr){ pub = addr; H.savePrefs?.(); schedule(); await refresh(); }
 export const connected = () => !!pub;
 export const address = () => pub;
 export const short = a => a ? a.slice(0, 4) + '…' + a.slice(-4) : '';
@@ -116,6 +119,7 @@ function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;',
 // ---------- broker window: Phantom card states ----------
 export function brokerCard(){
   if (pub) return { state:'connected', label:'Connected · ' + short(pub) };
+  if (inShell()) return { state:'shell', label:'Connect' };
   if (provider()) return { state:'ready', label:'Connect' };
   if (isMobile()) return { state:'open', label:'Open in Phantom' };
   return { state:'install', label:'Install Phantom' };
@@ -123,6 +127,7 @@ export function brokerCard(){
 export async function brokerClick(){
   const c = brokerCard();
   if (c.state === 'connected') return 'Phantom is connected. Holdings are on the Portfolio page. Orders stay paper.';
+  if (c.state === 'shell') { try { window.ReactNativeWebView.postMessage(JSON.stringify({ source:'memescreen', type:'ms-wallet-connect' })); } catch {} return 'Phantom is opening. Approve the connection there and you will come straight back here.'; }
   if (c.state === 'open') { H.openExternal?.(phantomOpenUrl()); return 'Opening this page inside the Phantom app. Tap Connect there.'; }
   if (c.state === 'install') { window.open('https://phantom.app/download', '_blank', 'noopener'); return 'Install the Phantom extension, then come back and press Connect.'; }
   const a = await connect(); H.toast?.('Phantom connected · ' + short(a)); return 'Connected ' + short(a) + '. Your real holdings are on the Portfolio page, read-only.';
