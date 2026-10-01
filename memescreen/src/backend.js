@@ -66,6 +66,8 @@ function expressBackend(cfg){
     async login({ email, password }, remember){ const d = await call('/login', { method:'POST', authed:false, body:{ email, password } }); session.set({ token:d.token, user:d.user, kind:'express' }, remember); return d.user; },
     async me(){ const d = await call('/me'); if (!d.user) throw new HttpError('Session expired — sign in again', 401); return d.user; },
     async logout(){ session.clear(); },
+    async forgotPassword(email){ const d = await call('/forgot', { method:'POST', authed:false, body:{ email } }); return d.message || 'If that email has an account, a reset link is on its way.'; },
+    async resetPassword(token, password){ await call('/reset', { method:'POST', authed:false, body:{ token, password } }); },
     async listAccounts(){ return (await call('/accounts')).accounts; },
     async saveAccount(a){ return (await call('/accounts/' + encodeURIComponent(a.name), { method:'PUT', body:{ size:a.size, state:a.state } })).account; },
     async deleteAccount(name){ await call('/accounts/' + encodeURIComponent(name), { method:'DELETE' }); },
@@ -79,6 +81,7 @@ function expressBackend(cfg){
     async joinCompetition(code){ return (await call('/competitions/join', { method:'POST', body:{ code } })).competition; },
     async leaveCompetition(code){ await call('/competitions/' + encodeURIComponent(code) + '/leave', { method:'POST' }); },
     async deleteMe(){ await call('/me', { method:'DELETE' }); session.clear(); },
+    async savePushDevice(d){ await call('/push-device', { method:'POST', body:d }); },
   };
 }
 
@@ -122,6 +125,9 @@ function back4appBackend(cfg){
     async login({ email, password }, remember){ const d = await call('/login', { method:'POST', authed:false, body:{ username:(email||'').trim().toLowerCase(), password } }); const user = toUser(d); session.set({ token:d.sessionToken, user, kind:'back4app' }, remember); return user; },
     async me(){ const u = toUser(await call('/users/me')); const s = session.get(); session.set({ ...s, user:u }, s.remember); return u; },
     async logout(){ try { await call('/logout', { method:'POST' }); } catch {} session.clear(); },
+    // Back4App emails the reset link itself (App Settings → Verification emails holds the template and sender)
+    async forgotPassword(email){ await call('/requestPasswordReset', { method:'POST', authed:false, body:{ email:(email||'').trim().toLowerCase() } }); return 'If that email has an account, Back4App has sent it a reset link. Check spam too.'; },
+    async resetPassword(){ throw new HttpError('Use the link in the email to choose a new password', 400); },
     async listAccounts(){
       const d = await call('/classes/PaperAccount', { params:{ where:{ owner:ptr() }, limit:'100', order:'createdAt' } });
       return d.results.map(r => { ids[r.name] = r.objectId; return { name:r.name, size:r.size, state:r.state||null, updatedAt:+new Date(r.updatedAt) }; });
@@ -155,7 +161,14 @@ function back4appBackend(cfg){
       if (!(c.memberIds||[]).includes(me().id)) await call('/classes/Competition/' + c.objectId, { method:'PUT', body:{ members:{ __op:'AddUnique', objects:[me().nickname] }, memberIds:{ __op:'AddUnique', objects:[me().id] } } });
       return { id:c.objectId, name:c.name, code:c.code, by:c.ownerNick, members:[...new Set([...(c.members||[]), me().nickname])], mine:true }; },
     async leaveCompetition(code){ const f = await call('/classes/Competition', { params:{ where:{ code }, limit:'1' } }); const c = f.results[0]; if (!c) return; await call('/classes/Competition/' + c.objectId, { method:'PUT', body:{ members:{ __op:'Remove', objects:[me().nickname] }, memberIds:{ __op:'Remove', objects:[me().id] } } }); },
-    async deleteMe(){ const id = me().id; try { for (const cls of ['PaperAccount','Profile','Leaderboard']) { const d = await call('/classes/' + cls, { params:{ where:{ owner:ptr() }, limit:'200' } }); for (const r of d.results) await call('/classes/' + cls + '/' + r.objectId, { method:'DELETE' }); } } catch {} await call('/users/' + id, { method:'DELETE' }); session.clear(); },
+    // Expo push token for this phone (class PushDevice: owner, token, platform). One row per token.
+    async savePushDevice({ token, platform }){
+      const found = await call('/classes/PushDevice', { params:{ where:{ token }, limit:1 } });
+      const body = { owner: ptr(), token, platform: platform || 'ios', ACL: ownerAcl() };
+      if (found.results?.length) await call('/classes/PushDevice/' + found.results[0].objectId, { method:'PUT', body:{ owner: ptr(), platform: body.platform } });
+      else await call('/classes/PushDevice', { method:'POST', body });
+    },
+    async deleteMe(){ const id = me().id; try { for (const cls of ['PaperAccount','Profile','Leaderboard','PushDevice']) { const d = await call('/classes/' + cls, { params:{ where:{ owner:ptr() }, limit:'200' } }); for (const r of d.results) await call('/classes/' + cls + '/' + r.objectId, { method:'DELETE' }); } } catch {} await call('/users/' + id, { method:'DELETE' }); session.clear(); },
   };
 }
 

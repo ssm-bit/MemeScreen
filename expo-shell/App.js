@@ -10,6 +10,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import * as Notifications from 'expo-notifications';
 import * as ExpoLinking from 'expo-linking';
+import Constants from 'expo-constants';
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
 
@@ -28,6 +29,7 @@ Notifications.setNotificationHandler({
 // We make an X25519 keypair, send Phantom our public key and a link back to this app. Phantom opens, the user
 // approves, Phantom opens our link with an encrypted payload holding the wallet address. We decrypt it here.
 let dapp = null;                                   // { publicKey, secretKey }
+let phantomShared = null, phantomSession = null;   // set after connect; needed to sign
 function phantomConnectUrl() {
   dapp = nacl.box.keyPair();
   const redirect = ExpoLinking.createURL('phantom');  // exp://…/--/phantom in Expo Go, memescreen://phantom in a build
@@ -45,13 +47,42 @@ function phantomDecode(url) {
     const open = nacl.box.open.after(bs58.decode(data), bs58.decode(nonce), shared);
     if (!open) return { error: 'Could not decrypt Phantom\'s reply' };
     const j = JSON.parse(utf8(open));
+    phantomShared = shared; phantomSession = j.session;
     return { pub: j.public_key };
+  } catch (e) { return { error: e.message }; }
+}
+// signTransaction / signAndSendTransaction over deep links: payload encrypted with the shared secret from connect
+function phantomSignUrl(txB58, send) {
+  if (!phantomShared || !phantomSession) throw new Error('Connect Phantom first');
+  const nonce = nacl.randomBytes(24);
+  const payload = new TextEncoder().encode(JSON.stringify({ transaction: txB58, session: phantomSession }));
+  const enc = nacl.box.after(payload, nonce, phantomShared);
+  const q = new URLSearchParams({ dapp_encryption_public_key: bs58.encode(dapp.publicKey), nonce: bs58.encode(nonce), redirect_link: ExpoLinking.createURL('phantom-sign'), payload: bs58.encode(enc) });
+  return 'https://phantom.app/ul/v1/' + (send ? 'signAndSendTransaction' : 'signTransaction') + '?' + q.toString();
+}
+function phantomSignDecode(url) {
+  try {
+    const p = new URL(url).searchParams;
+    if (p.get('errorCode')) return { error: p.get('errorMessage') || 'Phantom declined' };
+    const open = nacl.box.open.after(bs58.decode(p.get('data')), bs58.decode(p.get('nonce')), phantomShared);
+    if (!open) return { error: 'Could not decrypt Phantom\'s reply' };
+    const j = JSON.parse(utf8(open));
+    return j.signature ? { signature: j.signature } : { signed: true, transaction: j.transaction };
   } catch (e) { return { error: e.message }; }
 }
 
 export default function App() {
   const web = useRef(null);
   const tell = msg => { try { web.current?.injectJavaScript(`window.postMessage(${JSON.stringify({ source: 'phone-os', ...msg })}, location.origin); true;`); } catch {} };
+  // Expo push token → the web app saves it to Back4App (PushDevice), the sendPush cloud function delivers through Expo
+  const registerPush = async () => {
+    try {
+      const perm = await Notifications.requestPermissionsAsync(); if (!perm.granted) return tell({ type: 'push-token', error: 'notifications not allowed' });
+      const projectId = Constants.expoConfig?.extra?.eas?.projectId || Constants.easConfig?.projectId;
+      const t = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
+      tell({ type: 'push-token', token: t.data, platform: Platform.OS });
+    } catch (e) { tell({ type: 'push-token', error: e.message }); }
+  };
 
   useEffect(() => {
     Notifications.requestPermissionsAsync();
@@ -61,7 +92,11 @@ export default function App() {
       if (addr) tell({ type: 'open-token', addr });
     });
     // Phantom sends the user back here with the wallet address
-    const onUrl = ({ url }) => { if (!url || !/phantom/.test(url)) return; const r = phantomDecode(url); if (!r) return; tell({ type: 'wallet', ...r }); };
+    const onUrl = ({ url }) => {
+      if (!url) return;
+      if (/phantom-sign/.test(url)) { const r = phantomSignDecode(url); tell({ type: 'wallet-signed', ...r }); return; }
+      if (/phantom/.test(url)) { const r = phantomDecode(url); if (r) tell({ type: 'wallet', ...r }); }
+    };
     const lsub = Linking.addEventListener('url', onUrl);
     Linking.getInitialURL().then(url => url && onUrl({ url }));
     return () => { sub.remove(); lsub.remove(); };
@@ -72,6 +107,9 @@ export default function App() {
     if (m?.source !== 'memescreen') return;
     if (m.type === 'ms-open-url' && /^https?:/i.test(m.url || '')) { Linking.openURL(m.url).catch(() => {}); return; }
     if (m.type === 'ms-wallet-connect') { Linking.openURL(phantomConnectUrl()).catch(() => tell({ type: 'wallet', error: 'Phantom is not installed' })); return; }
+    if (m.type === 'ms-wallet-sign') { try { Linking.openURL(phantomSignUrl(m.tx, m.send)).catch(() => tell({ type: 'wallet-signed', error: 'Could not open Phantom' })); } catch (e) { tell({ type: 'wallet-signed', error: e.message }); } return; }
+    if (m.type === 'ms-push-register') { registerPush(); return; }
+    if (m.type === 'ms-wallet-disconnect') { phantomShared = null; phantomSession = null; return; }
     if (m.type !== 'ms-alert') return;
     Notifications.scheduleNotificationAsync({ content: { title: 'MemeScreen · ' + m.sym, body: m.msg, data: { addr: m.addr } }, trigger: null });
   };

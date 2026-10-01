@@ -38,7 +38,7 @@ Step 'Installing the WebView, notifications and safe-area packages'
 Push-Location $expo
 $pkg = Get-Content package.json -Raw
 if ($pkg -notmatch 'react-native-webview' -or $pkg -notmatch 'expo-notifications' -or $pkg -notmatch 'react-native-safe-area-context' -or $pkg -notmatch 'expo-linking' -or $pkg -notmatch 'tweetnacl' -or $pkg -notmatch 'react-native-get-random-values') {
-  cmd /c "npx expo install react-native-webview expo-notifications react-native-safe-area-context expo-linking react-native-get-random-values"
+  cmd /c "npx expo install react-native-webview expo-notifications react-native-safe-area-context expo-linking expo-constants react-native-get-random-values"
   cmd /c "npm install tweetnacl bs58"
 } else { Write-Host 'Already installed.' }
 Pop-Location

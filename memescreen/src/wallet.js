@@ -20,7 +20,7 @@ export const isMobile = () => /iPhone|iPad|Android/i.test(navigator.userAgent);
 export const inPhantomBrowser = () => !!provider() && isMobile();
 export const inShell = () => !!window.ReactNativeWebView;   // the Expo app: Phantom connects through a deep link and comes back here
 // the Expo shell hands us the address after the deep-link handshake
-export async function setExternal(addr){ pub = addr; H.savePrefs?.(); schedule(); await refresh(); }
+export async function setExternal(addr){ userDisconnected = false; pub = addr; H.savePrefs?.(); schedule(); await refresh(); }
 export const connected = () => !!pub;
 export const address = () => pub;
 export const short = a => a ? a.slice(0, 4) + '…' + a.slice(-4) : '';
@@ -38,9 +38,13 @@ async function rpc(method, params){
   throw last || new Error('No Solana RPC reachable');
 }
 
+let userDisconnected = false;   // once the user disconnects, nothing in this session re-attaches the wallet by itself
 export async function connect({ silent = false } = {}){
   const p = provider();
-  if (!p) { if (isMobile()) H.openExternal?.(phantomOpenUrl()); else window.open('https://phantom.app/download', '_blank', 'noopener'); throw new Error(isMobile() ? 'Opening Phantom…' : 'Phantom is not installed in this browser'); }
+  if (!p) {
+    if (silent) throw new Error('no provider');                     // never open Phantom on our own; only a tap does that
+    if (isMobile()) H.openExternal?.(phantomOpenUrl()); else window.open('https://phantom.app/download', '_blank', 'noopener'); throw new Error(isMobile() ? 'Opening Phantom…' : 'Phantom is not installed in this browser'); }
+  userDisconnected = false;
   const r = await p.connect(silent ? { onlyIfTrusted: true } : undefined);
   pub = (r?.publicKey || p.publicKey)?.toString(); if (!pub) throw new Error('Phantom did not return an address');
   p.on?.('accountChanged', k => { pub = k ? k.toString() : null; if (pub) refresh(); else disconnect(false); });
@@ -49,14 +53,17 @@ export async function connect({ silent = false } = {}){
   return pub;
 }
 export async function disconnect(tellPhantom = true){
-  if (tellPhantom) { try { await provider()?.disconnect(); } catch {} }
+  if (tellPhantom) { userDisconnected = true; try { await provider()?.disconnect(); } catch {} try { window.ReactNativeWebView?.postMessage(JSON.stringify({ source:'memescreen', type:'ms-wallet-disconnect' })); } catch {} }
   pub = null; holdings = []; sol = 0; err = ''; clearTimeout(timer); timer = null; H.savePrefs?.(); render();
 }
 function schedule(){ clearTimeout(timer); timer = setTimeout(() => { refresh(); }, 60000); }
 
 // prefs: the address is remembered on the account so the wallet card shows up on every device; Phantom itself still has to approve each browser once
 export function prefs(){ return pub ? { pub } : null; }
-export async function applyPrefs(w){ if (w?.pub && !pub) { pub = w.pub; try { await connect({ silent: true }); } catch { /* not approved in this browser yet: show the card from the address alone */ schedule(); refresh(); } } }
+// a wallet address remembered on the account: show its holdings (read-only needs no approval), and on desktop
+// quietly re-attach the extension if the site is already trusted. Never opens the Phantom app by itself.
+export async function applyPrefs(w){ if (userDisconnected || !w?.pub || pub) return; pub = w.pub; if (provider() && !isMobile()) { try { await connect({ silent: true }); return; } catch {} } schedule(); refresh(); }
+export async function setExternalDisconnect(){ userDisconnected = true; }
 
 export async function refresh(){
   if (!pub || busy) return; busy = true; err = '';
@@ -68,25 +75,29 @@ export async function refresh(){
     ]);
     sol = (bal?.value ?? bal ?? 0) / 1e9;
     const accts = [...(a1?.value || []), ...(a2?.value || [])].map(x => x.account?.data?.parsed?.info).filter(Boolean)
-      .map(i => ({ mint: i.mint, amount: +(i.tokenAmount?.uiAmount || 0) })).filter(x => x.amount > 0);
+      .map(i => ({ mint: i.mint, amount: +(i.tokenAmount?.uiAmount || 0), dec: +(i.tokenAmount?.decimals ?? 6) })).filter(x => x.amount > 0);
     // merge duplicate mints (several token accounts for one mint)
-    const byMint = {}; for (const a of accts) byMint[a.mint] = (byMint[a.mint] || 0) + a.amount;
+    const byMint = {}, decs = {}; for (const a of accts) { byMint[a.mint] = (byMint[a.mint] || 0) + a.amount; decs[a.mint] = a.dec; }
     const mints = Object.keys(byMint);
     const priced = [];
     for (let i = 0; i < mints.length; i += 30) { try { priced.push(...await H.fetchPairs(mints.slice(i, i + 30))); } catch {} }
     const pm = {}; for (const t of priced) pm[t.addr] = t;
     solUsd = H.solUsd?.() || solUsd;
-    holdings = mints.map(m => { const t = pm[m]; const price = t ? t.price : 0; return { mint: m, sym: t ? t.sym : m.slice(0, 4) + '…', name: t ? t.name : 'Unknown token', amount: byMint[m], price, value: byMint[m] * price, liq: t?.liq || 0, mcap: t?.mcap || 0, g: t ? H.grade(t).g : null, token: t || null }; })
+    holdings = mints.map(m => { const t = pm[m]; const price = t ? t.price : 0; return { mint: m, dec: decs[m], sym: t ? t.sym : m.slice(0, 4) + '…', name: t ? t.name : 'Unknown token', amount: byMint[m], price, value: byMint[m] * price, liq: t?.liq || 0, mcap: t?.mcap || 0, g: t ? H.grade(t).g : null, token: t || null }; })
       .sort((a, b) => b.value - a.value);
     lastAt = Date.now();
   } catch (e) { err = e.message || 'Could not read the wallet'; }
   busy = false; render(); if (pub) schedule();
 }
 
+export const list = () => holdings;
+export const solBalance = () => sol;
+export const solPrice = () => solUsd;
 export function total(){ return sol * solUsd + holdings.reduce((s, h) => s + h.value, 0); }
 
 // ---------- UI ----------
 export function render(){
+  H.onChange?.();
   const btn = $('brokerBtn'); if (btn) btn.textContent = pub ? 'Phantom ' + short(pub) : 'Broker';
   const el = $('walletCard'); if (!el) return;
   if (!pub) { el.style.display = 'none'; return; }

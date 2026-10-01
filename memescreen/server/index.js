@@ -2,6 +2,7 @@
 // Accounts (bcrypt-hashed passwords + JWT), wallet, trades, positions, watchlist, leaderboards.
 // Price data is pulled by the CLIENT directly from public APIs; this server owns user data + competition.
 
+import crypto from 'crypto';
 import express from 'express';
 import cors from 'cors';
 import bcrypt from 'bcryptjs';
@@ -87,6 +88,49 @@ app.post('/api/register', limitAuth, async (req, res) => {
     await query('INSERT INTO wallets(user_id,week_id,week_start_equity) VALUES($1,$2,$3)', [u.id, isoWeek(), START]);
     res.json({ token: sign(u), user: { id: u.id, email: u.email, nickname: u.nickname } });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Server error' }); }
+});
+
+// ---- forgot / reset password ----
+// There is no mail server in the class setup, so the reset link is printed in this server's console.
+// Set RESET_MAIL_HOOK to a URL that accepts { email, link } if you add one later.
+app.post('/api/forgot', limitAuth, async (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const msg = 'If that email has an account, a reset link is on its way.';
+  if (!email) return res.json({ message: msg });
+  const { rows } = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+  if (rows.length) {
+    const token = crypto.randomBytes(24).toString('base64url');
+    await pool.query('INSERT INTO password_resets (token, user_id, expires_at) VALUES ($1, $2, now() + interval \'1 hour\')', [token, rows[0].id]);
+    const link = (process.env.APP_URL || (req.headers.origin || '')).replace(/\/$/, '') + '/?reset=' + token;
+    console.log('[password reset] ' + email + ' → ' + link);
+    if (process.env.RESET_MAIL_HOOK) { try { await fetch(process.env.RESET_MAIL_HOOK, { method:'POST', headers:{ 'content-type':'application/json' }, body: JSON.stringify({ email, link }) }); } catch {} }
+  }
+  res.json({ message: msg });
+});
+app.post('/api/reset', limitAuth, async (req, res) => {
+  const token = String(req.body?.token || ''), password = String(req.body?.password || '');
+  if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  const { rows } = await pool.query('DELETE FROM password_resets WHERE token = $1 AND expires_at > now() RETURNING user_id', [token]);
+  if (!rows.length) return res.status(400).json({ error: 'That reset link is invalid or has expired' });
+  const hash = await bcrypt.hash(password, 12);
+  await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, rows[0].user_id]);
+  res.json({ ok: true });
+});
+
+// ---- Expo push devices ----
+app.post('/api/push-device', auth, async (req, res) => {
+  const token = String(req.body?.token || ''), platform = String(req.body?.platform || 'ios').slice(0, 10);
+  if (!/^ExponentPushToken\[/.test(token) && !/^ExpoPushToken\[/.test(token)) return res.status(400).json({ error: 'Not an Expo push token' });
+  await pool.query('INSERT INTO push_devices (token, user_id, platform) VALUES ($1,$2,$3) ON CONFLICT (token) DO UPDATE SET user_id = EXCLUDED.user_id, platform = EXCLUDED.platform, updated_at = now()', [token, req.user.id, platform]);
+  res.json({ ok: true });
+});
+// send a push to every phone of a user (used by cron jobs or an admin; needs the server's own secret)
+app.post('/api/push', async (req, res) => {
+  if (!process.env.PUSH_SECRET || req.headers['x-push-secret'] !== process.env.PUSH_SECRET) return res.status(403).json({ error: 'forbidden' });
+  const { userId, title, message, data } = req.body || {};
+  const { rows } = await pool.query('SELECT token FROM push_devices WHERE user_id = $1', [userId]);
+  const r = await fetch('https://exp.host/--/api/v2/push/send', { method:'POST', headers:{ 'content-type':'application/json' }, body: JSON.stringify(rows.map(x => ({ to: x.token, title, body: message, data: data || {}, sound: 'default' }))) });
+  res.json(await r.json());
 });
 
 app.post('/api/login', limitAuth, async (req, res) => {

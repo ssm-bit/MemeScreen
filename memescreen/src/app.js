@@ -5,6 +5,7 @@ import * as DT from './drawtools.js';
 import * as SCR from './screener.js';
 import * as WAL from './wallet.js';
 import * as FEED from './feed.js';
+import * as LIVE from './live.js';
 import { createBackend, session, settings as backendSettings, saveSettings as saveBackendSettings, resetSettings as resetBackendSettings, isAuthError } from './backend.js';
 let backend = createBackend();
 
@@ -33,6 +34,7 @@ const signedIn = () => !!TOKEN && !guest;
 
 // ---------- constants (restored) ----------
 const START = 10000, PLATFORM = 0.01, LP = 0.003, NET = 0.10, GRADES = ['F','D','C','B','A'];
+let liveMode = false;   // true = the connected Phantom wallet is the active account (see setLiveMode)
 const ICON = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="20" fill="#0A0D12"/><circle cx="50" cy="50" r="36" fill="none" stroke="#22E4A0" stroke-width="6"/><path d="M57 31L70 26" fill="none" stroke="#22E4A0" stroke-width="5" stroke-linecap="round"/><rect x="31" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><rect x="59" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><path d="M33 66Q50 68 67 58" fill="none" stroke="#22E4A0" stroke-width="5.5" stroke-linecap="round"/></svg>');
 
 // ---------- global news feed (ticker + alerts) ----------
@@ -88,7 +90,8 @@ function notifyHost(msg){ try { if (window.ReactNativeWebView) window.ReactNativ
 // would replace the app with the web page, so links are routed through here instead.
 function openExternal(url){ if (!url || url === '#') return; if (window.ReactNativeWebView) { try { window.ReactNativeWebView.postMessage(JSON.stringify({ source:'memescreen', type:'ms-open-url', url })); } catch {} return; } const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.dataset.ext = '1'; a.style.display = 'none'; document.body.appendChild(a); a.click(); a.remove(); }
 document.addEventListener('click', e => { const a = e.target.closest && e.target.closest('a[href]'); if (!a || a.dataset.ext) return; const href = a.getAttribute('href') || ''; if (!/^https?:/i.test(href)) return; e.preventDefault(); openExternal(a.href); }, true);
-window.addEventListener('message', e => { if (e.origin !== location.origin || e.data?.source !== 'phone-os') return; if (e.data.type === 'open-token') openTokenFromAlert(e.data.addr); if (e.data.type === 'wallet') { if (e.data.pub) { WAL.setExternal(e.data.pub).then(() => { toast('Phantom connected · ' + WAL.short(e.data.pub)); const bm = $('brokerModal'); if (bm) bm.style.display = 'none'; show('portfolio'); }); } else toast('Phantom: ' + (e.data.error || 'not connected')); } });
+window.addEventListener('message', e => { if (e.origin !== location.origin || e.data?.source !== 'phone-os') return; if (e.data.type === 'open-token') openTokenFromAlert(e.data.addr); if (e.data.type === 'push-token') { if (e.data.token && signedIn()) backend.savePushDevice({ token: e.data.token, platform: e.data.platform }).then(() => { try { localStorage.setItem('ms_push_' + userKey(), e.data.token); } catch {} toast('This phone is registered for push alerts'); }).catch(err => toast('Push registration failed: ' + err.message)); }
+  if (e.data.type === 'wallet') { if (e.data.pub) { WAL.setExternal(e.data.pub).then(() => { toast('Phantom connected · ' + WAL.short(e.data.pub)); const bm = $('brokerModal'); if (bm) bm.style.display = 'none'; setLiveMode(true); show('trade'); }); } else toast('Phantom: ' + (e.data.error || 'not connected')); } });
 
 // ---------- state ----------
 let cash = START, positions = [], trades = [], tokens = [], selected = null, sizeUsd = 250, live = false, tf = '5m', chartCache = {}, watch = new Set(), alerts = [], unread = 0;
@@ -335,7 +338,23 @@ function renderAlerts(){ $('alog').innerHTML = alerts.length ? alerts.map(a => `
   const rd = () => { rules.move1m = { on: $('r1').checked, pct: +$('r1p').value||5 }; rules.move5m = { on: $('r5').checked, pct: +$('r5p').value||15 }; rules.grade.on = $('rg').checked; rules.liq.on = $('rl').checked; rules.newpair = { on: $('rn').checked, minGrade: $('rng').value }; save('prefs'); };
   ['r1','r1p','r5','r5p','rg','rl','rn','rng'].forEach(id => $(id).onchange = rd);
 }
-$('enable').onclick = async () => { if (!('Notification' in window)) return toast('Not supported here'); const p = await Notification.requestPermission(); notifState(); if (p === 'granted') sysNotify('MemeScreen', 'Notifications are on. You\'ll hear about it when a watched memecoin moves.', 'ms-on'); };
+async function enableNotifications(){
+  if (window.ReactNativeWebView) { notifyHost({ type:'ms-push-register' }); toast('Asking the phone for permission…'); return; }   // the Expo shell shows the iOS prompt and registers the push token
+  if (!('Notification' in window)) return toast('Not supported here');
+  const p = await Notification.requestPermission(); notifState(); if (p === 'granted') sysNotify('MemeScreen', 'Notifications are on. You\'ll hear about it when a watched memecoin moves.', 'ms-on');
+}
+$('enable').onclick = enableNotifications;
+// asked once per login, right after sign-in; Settings → Notifications can change it later
+function askNotifications(){
+  const m = $('notifModal'); if (!m) return;
+  const key = 'ms_notif_asked_' + userKey(); let asked = null; try { asked = localStorage.getItem(key); } catch {}
+  const already = !window.ReactNativeWebView && 'Notification' in window && Notification.permission !== 'default';
+  if (asked || already) return;
+  m.style.display = 'flex';
+  const done = v => { try { localStorage.setItem(key, v); } catch {} m.style.display = 'none'; };
+  $('notifYes').onclick = () => { done('yes'); enableNotifications(); };
+  $('notifNo').onclick = () => done('no');
+}
 $('testn').onclick = () => { const t = selected || tokens[0]; if (!t) return; delete firedAt['test:'+t.addr]; fireAlert('test', t, `Test: ${t.sym} is at ${fmtP(t.price)} right now`); };
 
 // ---------- server sync ----------
@@ -398,7 +417,7 @@ async function renderComp(){
 // ---------- portfolio ----------
 function renderPortfolio(){
   WAL.render();
-  const B=baseline(); const eq = equity(), pnl = eq - B, closed = trades.filter(t => !t.open); const wins = closed.filter(t => t.pnl > 0).length; const fees = trades.reduce((s,t) => s + (t.fees||0), 0);
+  const B=baseline(); const eq = equity(), pnl = eq - B, closed = trades.filter(t => !t.open && !t.note); const wins = closed.filter(t => t.pnl > 0).length; const fees = trades.reduce((s,t) => s + (t.fees||0), 0);
   $('pkpis').innerHTML = [['Equity', fmt(eq)], ['Total P&L', fmt(pnl) + ' (' + pct(pnl/B*100) + ')'], ['Win rate', closed.length ? Math.round(wins/closed.length*100) + '% of ' + closed.length : '—'], ['Fees paid', fmt(fees)], ['Open positions', positions.length], ['This week', pct((eq-weekStartEq)/weekStartEq*100)]].map(([k,v]) => `<div>${k}<b class="num">${v}</b></div>`).join('');
   const byg = {}; for (const t of closed) { byg[t.grade] = (byg[t.grade]||0) + (t.pnl||0); } const mx = Math.max(1, ...Object.values(byg).map(Math.abs));
   $('bygrade').innerHTML = GRADES.slice().reverse().map(g => { const v = byg[g]||0; return `<div class="row"><span>${gBadge(g)}</span><span style="flex:1;margin:0 10px;height:8px;background:var(--raised);border-radius:4px;overflow:hidden;position:relative"><span style="position:absolute;top:0;bottom:0;${v>=0?'left:50%':'right:50%'};width:${Math.abs(v)/mx*50}%;background:var(--${v>=0?'brand':'F'})"></span></span><b class="num ${v>=0?'up':'dn'}">${fmt(v)}</b></div>`; }).join('') + (closed.length ? '' : '<div class="empty">Close a position to see where your money actually goes.</div>');
@@ -527,7 +546,7 @@ function applyIndicators(){
 }
 // ---------- drawings (native overlays + TP/SL/order lines) ----------
 SCR.init({ tokens: () => tokens, select: t => { selected = t; show('trade'); render(); document.querySelector('.m-segs [data-seg=chart]')?.click(); }, toast, fireAlert, saveScreens: () => save('prefs'), signedIn });
-WAL.init({ grade, fetchPairs, gBadge, toast, openExternal, fmt, fmtP, fmtK, solUsd: () => solUsd, savePrefs: () => save('prefs'), select: t => { const have = tokens.find(x => x.addr === t.addr); if (!have) { t.grade = grade(t); tokens.push(t); } selected = have || t; show('trade'); render(); document.querySelector('.m-segs [data-seg=chart]')?.click(); } });
+WAL.init({ grade, fetchPairs, gBadge, toast, openExternal, fmt, fmtP, fmtK, solUsd: () => solUsd, savePrefs: () => save('prefs'), onChange: () => { renderAccountUI(); if (liveMode && !WAL.connected()) setLiveMode(false); if (!liveMode && WAL.connected() && !window.__liveRestored) { window.__liveRestored = true; try { if (localStorage.getItem('ms_livemode') === '1') setLiveMode(true); } catch {} } if (liveMode) { updateLive(); if (bottomTab==='positions') renderPositions(); } }, select: t => { const have = tokens.find(x => x.addr === t.addr); if (!have) { t.grade = grade(t); tokens.push(t); } selected = have || t; show('trade'); render(); document.querySelector('.m-segs [data-seg=chart]')?.click(); } });
 FEED.init({ sol: () => solUsd, price: (t, px) => { t.target = px; t.feedAt = Date.now(); } });   // tick() eases price → target, which also refreshes the header, list and candle
 function renderLegal(){ const el=$('legalBody'); if(!el || el.dataset.done) return; el.dataset.done='1';
   const del=$('deleteAcct'); if(del) del.onclick=async()=>{ if(!signedIn()) return toast('Guest data lives only in this browser. Clear the site data to remove it.'); if(!confirm('Delete your MemeScreen account and every paper account, trade and setting tied to it? This cannot be undone.')) return; const typed=prompt('Type DELETE to confirm'); if(typed!=='DELETE') return; try { await backend.deleteMe(); try { Object.keys(localStorage).filter(k=>k.startsWith('ms_')).forEach(k=>localStorage.removeItem(k)); } catch {} toast('Account deleted'); setTimeout(()=>location.reload(), 800); } catch(e){ toast(e.message||'Could not delete'); } }; }
@@ -566,7 +585,9 @@ function tick(){
   const cs = $('csrc'); if (cs && live && FEED.status && selected && !String(selected.pair).startsWith('sim')) { const txt = 'Market cap · GeckoTerminal candles · ' + FEED.status + (selected.feedAt ? ' · ' + Math.max(0, Math.round((Date.now() - selected.feedAt) / 1000)) + 's ago' : ''); if (cs.textContent !== txt) cs.textContent = txt; }
 }
 function updateLive(){
-  const B=baseline(); const eq = equity(), pnl = eq - B; const setT=(id,v)=>{ const e=$(id); if(e) e.textContent=v; }; const setC=(id,c)=>{ const e=$(id); if(e) e.className=c; }; setT('cash',fmt(cash)); setT('equity',fmt(eq)); setT('pnl',fmt(pnl)+' ('+pct(pnl/B*100)+')'); setC('pnl','num '+(pnl>=0?'up':'dn')); const wr=(eq-weekStartEq)/weekStartEq*100; setT('wk',pct(wr)); setC('wk','num '+(wr>=0?'up':'dn'));
+  const B=baseline(); const eq = equity(), pnl = eq - B; const setT=(id,v)=>{ const e=$(id); if(e) e.textContent=v; }; const setC=(id,c)=>{ const e=$(id); if(e) e.className=c; };
+  if (liveMode) { setT('cash', '◎' + WAL.solBalance().toFixed(3)); setT('equity', fmt(WAL.total())); setT('pnl', 'live · ' + WAL.list().length + ' token' + (WAL.list().length===1?'':'s')); setC('pnl','num'); setT('wk','◎' + WAL.solBalance().toFixed(2) + ' free'); } else {
+  setT('cash',fmt(cash)); setT('equity',fmt(eq)); setT('pnl',fmt(pnl)+' ('+pct(pnl/B*100)+')'); setC('pnl','num '+(pnl>=0?'up':'dn')); const wr=(eq-weekStartEq)/weekStartEq*100; setT('wk',pct(wr)); setC('wk','num '+(wr>=0?'up':'dn')); }
   for (const t of tokens) { const el = document.querySelector(`tr[data-a="${t.addr}"] .pr`); const mc = liveMcap(t); if (el && el.textContent !== fmtK(mc)) { el.textContent = fmtK(mc); el.classList.remove('fu','fd'); void el.offsetWidth; el.classList.add(t.price >= (lastPrices[t.addr] ?? t.price) ? 'fu' : 'fd'); } lastPrices[t.addr] = t.price; }
   if (selected) { const pe = document.querySelector('.t-center .price'); if (pe) pe.firstChild.textContent = fmtP(selected.price) + ' '; if (selected.lastTrade && Date.now()-selected.lastTrade.at < 4000) { const lt = $('lasttrade'); if (lt) lt.innerHTML = `<span class="${selected.lastTrade.side==='buy'?'up':'dn'}">${selected.lastTrade.side.toUpperCase()}</span> ${fmt(selected.lastTrade.usd)} · ${new Date(selected.lastTrade.at).toLocaleTimeString()}`; } }
   // positions refresh via renderPositions on its own interval (avoids desync with the table structure)
@@ -713,10 +734,36 @@ function acctObj(id){ return accounts.find(a=>a.id===(id||activeAcct)) || accoun
 function acctSize(){ return acctObj().size || 10000; }
 function baseline(){ return acctSize(); }
 
+// paper deposits and withdrawals: cash and the account's starting size move together so P&L stays honest
+function deposit(v){ const a = acctObj(); cash += v; a.size = Math.max(1, (a.size || START) + v); weekStartEq += v; trades.push({ id: Date.now()+''+Math.random().toString(36).slice(2,6), addr:'', sym: v>0?'DEPOSIT':'WITHDRAW', ts: Date.now(), price: 0, side: v>0?'B':'S', usd: Math.abs(v), fees: 0, impact: 0, grade: '-', pnl: 0, open: false, note: true }); saveAccounts(); save('both'); announce('accounts'); announce('state'); renderAccountUI(); render(); updateLive(); toast((v>0?'Deposited ':'Withdrew ')+fmt(Math.abs(v))+(v>0?' into ':' from ')+activeAcct); }
+function openWalletDeposit(){
+  const a = WAL.address(); if (!a) return toast('Connect Phantom first');
+  const m = $('walletDepModal'); if (!m) return;
+  $('wdAddr').textContent = a; m.style.display = 'flex';
+  const box = $('wdQr'); box.innerHTML = '';
+  const draw = () => { try { const q = window.qrcode(0, 'M'); q.addData('solana:' + a); q.make(); box.innerHTML = q.createSvgTag({ cellSize: 4, margin: 2 }); } catch { box.textContent = a; } };
+  if (window.qrcode) draw(); else { const sc = document.createElement('script'); sc.src = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js'; sc.onload = draw; sc.onerror = () => { box.textContent = a; }; document.head.appendChild(sc); }
+  $('wdCopy').onclick = () => { navigator.clipboard?.writeText(a).then(() => toast('Address copied')).catch(() => {}); };
+}
+{ const m=$('walletDepModal'); if(m){ m.onclick=e=>{ if(e.target===m) m.style.display='none'; }; const c=$('wdClose'); if(c) c.onclick=()=>m.style.display='none'; } }
+// ---------- paper vs live wallet ----------
+// liveMode = the header, ticket and positions show the connected Phantom wallet; paper accounts are untouched.
+function setLiveMode(on){
+  if (on && !WAL.connected()) { toast('Connect Phantom first (Broker)'); on = false; }
+  if (liveMode === on) { renderAccountUI(); return; }
+  liveMode = on; try { localStorage.setItem('ms_livemode', on ? '1' : ''); } catch {}
+  renderAccountUI(); render(); updateLive(); if ($('v-portfolio')?.classList.contains('on')) renderPortfolio();
+  toast(on ? 'Live wallet · orders go to Phantom, test mode unless you tick Send for real' : 'Back to paper · ' + activeAcct);
+}
 function renderAccountUI(){
   const sel = $('acctSel');
-  if (sel){ sel.innerHTML = accounts.map(a=>`<option value="${esc(a.id)}" ${a.id===activeAcct?'selected':''}>${esc(a.id)} · ${fmt(a.size).replace('.00','')}</option>`).join(''); sel.onchange = () => switchAccount(sel.value); }
+  if (sel){ sel.innerHTML = accounts.map(a=>`<option value="${esc(a.id)}" ${!liveMode && a.id===activeAcct?'selected':''}>${esc(a.id)} · ${fmt(a.size).replace('.00','')} · paper</option>`).join('') + (WAL.connected() ? `<option value="__wallet" ${liveMode?'selected':''}>Phantom ${esc(WAL.short(WAL.address()))} · live</option>` : '');
+    sel.onchange = () => { if (sel.value === '__wallet') setLiveMode(true); else { if (liveMode) setLiveMode(false); switchAccount(sel.value); } }; }
   const rb=$('reset'); if(rb) rb.textContent='Reset "'+activeAcct+'" to '+fmt(acctSize()).replace('.00','');
+  const dp2=$('depositBtn2'); if(dp2) dp2.onclick=()=>$('depositBtn')?.click();
+  const wl=$('walletLine'); if(wl){ wl.innerHTML = WAL.connected() ? `Phantom <b>${esc(WAL.short(WAL.address()))}</b> connected · ${liveMode?'active (live)':'paper is active'} <button class="mini" id="wlDisc">Disconnect Phantom</button>` : 'No wallet connected. <button class="mini" id="wlConn">Connect Phantom</button>'; const d=$('wlDisc'); if(d) d.onclick=async ()=>{ await WAL.disconnect(true); if (liveMode) setLiveMode(false); renderAccountUI(); toast('Phantom disconnected'); }; const c=$('wlConn'); if(c) c.onclick=openBrokerModal; }
+  const dp=$('depositBtn'); if(dp) dp.onclick=()=>{ if (liveMode) return openWalletDeposit(); const v=+prompt('Deposit how much paper money into "'+activeAcct+'"? (e.g. 100, 500, 5000)','500'); if(!(v>0)) return; deposit(v); };
+  const wd=$('withdrawBtn'); if(wd) wd.onclick=()=>{ if (liveMode) return toast('Withdraw from Phantom itself — MemeScreen never moves wallet funds'); const v=+prompt('Withdraw how much paper money from "'+activeAcct+'"? Available cash: '+fmt(cash),'100'); if(!(v>0)) return; if(v>cash) return toast('Only '+fmt(cash)+' is free to withdraw'); deposit(-v); };
   const mgr = $('acctMgr');
   if (mgr){
     mgr.innerHTML = accounts.map(a=>{ const st = a.id===activeAcct ? null : store.get(acctKey(a.id)); const open = a.id===activeAcct ? positions.length : (st?.positions||[]).length; return `<div class="row acctrow"><span><b>${esc(a.id)}</b>${a.id===activeAcct?' <span class="ok">(active)</span>':''}${a.id==='main'?' <span class="hint">· competes on the leaderboard</span>':''}<div class="hint">start ${fmt(a.size).replace('.00','')} · ${open} open position${open===1?'':'s'}</div></span><span class="acctbtns">${a.id!=='main'?`<button class="mini" data-del="${esc(a.id)}">Delete</button>`:''}${a.id!==activeAcct?`<button class="mini primary" data-sw="${esc(a.id)}">Switch</button>`:''}</span></div>`; }).join('')
@@ -785,11 +832,11 @@ function renderDetail(){
     <div class="stats"><div>Liquidity<b class="num">${fmtK(t.liq)}</b></div><div>Market cap<b class="num">${fmtK(t.mcap)}</b></div><div>24h volume<b class="num">${fmtK(t.vol24)}</b></div><div>Buys / sells (1h)<b class="num">${t.buys} / ${t.sells}</b></div><div>Pair age<b class="num">${age(t.created)}</b></div><div>Vol ÷ liq<b class="num">${(t.vol24/Math.max(t.liq,1)).toFixed(1)}×</b></div></div>
     ${t.grade.flags.length ? `<div class="flags">Bears say:<ul style="margin:4px 0 0;padding-left:18px">${t.grade.flags.map(f=>`<li>${f}</li>`).join('')}</ul></div>` : `<div class="flags">No red flags on this pool right now.</div>`}
 `;
-  const op = $('orderpanel'); if (op) op.innerHTML = `
+  const op = $('orderpanel'); if (op && liveMode) { renderLiveTicket(t, op); } else if (op) op.innerHTML = `
     <div class="ticket">
       <div class="ordtabs"><button class="ordtab ${ordType==='market'?'on':''}" data-ot="market">Market</button><button class="ordtab ${ordType==='limit'?'on':''}" data-ot="limit">Limit</button><button class="ordtab ${ordType==='stop'?'on':''}" data-ot="stop">Stop</button></div>
       <div class="ordlabel">Amount <span style="color:var(--t3)">· ${solUsd?('◎'+(sizeUsd/solUsd).toFixed(2)+' SOL'):('$'+sizeUsd)}</span></div>
-      <div class="presets">${[0.5,1,2,5,10].map(sol=>{ const usd=Math.round(sol*(solUsd||150)); return `<button class="sol ${Math.abs(usd-sizeUsd)<1?'on':''}" data-usd="${usd}">◎${sol}</button>`; }).join('')}</div>
+      <div class="presets">${(equity() < 2500 ? [5,10,25,50,100].map(usd=>`<button class="sol ${Math.abs(usd-sizeUsd)<1?'on':''}" data-usd="${usd}">$${usd}</button>`) : [0.5,1,2,5,10].map(sol=>{ const usd=Math.round(sol*(solUsd||150)); return `<button class="sol ${Math.abs(usd-sizeUsd)<1?'on':''}" data-usd="${usd}">◎${sol}</button>`; })).join('')}</div>
       <div class="presets pctrow">${[10,25,50,100].map(p=>`<button class="pct" data-pct="${p}">${p}%</button>`).join('')}<input class="ordinput sm num" id="customAmt" placeholder="Custom $" style="flex:1;margin-left:6px"></div>
       ${ordType!=='market' ? `<div class="ordlabel">${ordType==='limit'?'Limit price':'Stop price'}</div><input class="ordinput num" id="trigPrice" value="${(t.price).toPrecision(4)}">` : ''}
       <div class="exits">
@@ -802,9 +849,11 @@ function renderDetail(){
       <div class="two"><button class="primary" id="long" ${sizeUsd>cash?'disabled':''}>${ordType==='market'?'Long':'Place '+ordType} ${solUsd?('◎'+(sizeUsd/solUsd).toFixed(2)+' · '):''}${fmt(sizeUsd)}</button><button class="danger" id="short" ${sizeUsd>cash?'disabled':''}>${ordType==='market'?'Short':'Place short'} ${solUsd?('◎'+(sizeUsd/solUsd).toFixed(2)+' · '):''}${fmt(sizeUsd)}</button></div>
       ${orders.filter(o=>o.addr===t.addr).length ? `<div class="ordlabel" style="margin-top:10px">Open orders</div>${orders.filter(o=>o.addr===t.addr).map(o=>`<div class="row"><span>${o.kind} ${o.dir} @ ${fmtP(o.trigger)}</span><button class="mini" data-cancel="${o.id}">Cancel</button></div>`).join('')}` : ''}
     </div>`;
+  if (!liveMode) {
   document.querySelectorAll('.presets button[data-usd]').forEach(b => b.onclick = () => { sizeUsd = +b.dataset.usd; renderDetail(); });
   document.querySelectorAll('.presets button[data-pct]').forEach(b => b.onclick = () => { sizeUsd = Math.max(1, Math.round(cash * (+b.dataset.pct/100))); renderDetail(); });
   const ca=$('customAmt'); if(ca) ca.onchange=()=>{ const v=+ca.value; if(v>0){ sizeUsd=v; renderDetail(); } };
+  }
   d.querySelectorAll('.tfbtn').forEach(b => b.onclick = () => { tf = b.dataset.tf; renderDetail(); });
   // indicators menu
   $('indiBtn').onclick = () => { const m = $('indiMenu'); m.style.display = m.style.display==='none'?'block':'none'; };
@@ -814,7 +863,7 @@ function renderDetail(){
   if (keepRail) $('drawrail').replaceWith(keepRail); else DT.mount($('drawrail'));
   const setFull = on => { d.classList.toggle('chart-full', on); document.documentElement.classList.toggle('has-chart-full', on); $('chartFull').textContent = on ? '✕' : '⛶'; $('chartFull').title = on ? 'Exit full screen' : 'Full-screen chart'; setTimeout(()=>{ try { KC?.resize(); } catch {} }, 60); };
   setFull(wasFull); $('chartFull').onclick = () => setFull(!d.classList.contains('chart-full'));
-  document.querySelectorAll('.ordtab').forEach(b => b.onclick = () => { ordType = b.dataset.ot; renderDetail(); });
+  document.querySelectorAll('.ordtab[data-ot]').forEach(b => b.onclick = () => { ordType = b.dataset.ot; renderDetail(); });
   const useTP=$('useTP'), useSL=$('useSL');
   // TP/SL are entered as dollars of profit / risk and converted to a trigger price for the side being traded.
   // long: profit when price rises; short: profit when price falls. Limit/stop orders measure from the trigger price.
@@ -844,14 +893,79 @@ function renderDetail(){
   const ra=$('rewardAmt'), rk=$('riskAmt'); if(ra) ra.oninput=updateExitPreview; if(rk) rk.oninput=updateExitPreview; const tpi=$('trigPrice'); if(tpi) tpi.oninput=updateExitPreview;
   document.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=()=>{ orders=orders.filter(o=>o.id!==b.dataset.cancel); save(); renderDetail(); toast('Order cancelled'); });
   function fire(side){ const ex=exitPrices(side); if (ordType==='market'){ openTrade(side, { tp:ex.tp, sl:ex.sl }); } else { const trig=+$('trigPrice').value; if(!trig) return toast('Enter a price'); placeOrder(side, ordType, trig, ex.tp, ex.sl); } }
-  $('long').onclick = () => fire('long'); $('short').onclick = () => fire('short');
+  if ($('long')) { $('long').onclick = () => fire('long'); $('short').onclick = () => fire('short'); }
   $('dstar').onclick = () => { const onw = !watch.has(t.addr); onw ? watch.add(t.addr) : watch.delete(t.addr); save(); render(); syncStream(); markDirty('prefs'); };
   if (sameTok) { ['useTP','useSL'].forEach(id => { const e=$(id); if (e && form[id]) { e.checked = true; e.onchange(); } }); ['rewardAmt','riskAmt','trigPrice','customAmt'].forEach(id => { const e=$(id); if (e && form[id] != null && form[id] !== '') e.value = form[id]; }); updateExitPreview(); if (focusId && $(focusId) && focusId !== document.activeElement?.id && /rewardAmt|riskAmt|trigPrice|customAmt/.test(focusId)) { const e=$(focusId); e.focus(); try { e.setSelectionRange(e.value.length, e.value.length); } catch {} } }
   loadChart(t);
 }
+// ---------- live ticket (Phantom + Jupiter) ----------
+let lvSide = 'buy', lvSol = 0.05, lvPct = 50, lvQuote = null, lvBusy = false;
+function renderLiveTicket(t, op){
+  const h = WAL.list().find(x => x.mint === t.addr); const bal = WAL.solBalance(); const sp = WAL.solPrice() || solUsd || 0;
+  const keepQ = op.dataset.qaddr === t.addr && op.dataset.qside === lvSide ? lvQuote : null; lvQuote = keepQ; op.dataset.qaddr = t.addr; op.dataset.qside = lvSide;
+  op.innerHTML = `
+    <div class="ticket live">
+      <div class="livehead"><span class="livetag">LIVE</span> Phantom ${esc(WAL.short(WAL.address()))} · ◎${bal.toFixed(3)}${sp?' · '+fmt(bal*sp):''}</div>
+      <div class="ordtabs"><button class="ordtab ${lvSide==='buy'?'on':''}" data-ls="buy">Buy</button><button class="ordtab ${lvSide==='sell'?'on':''}" data-ls="sell">Sell</button></div>
+      ${lvSide==='buy' ? `
+      <div class="ordlabel">Amount <span style="color:var(--t3)">· ◎${lvSol} ${sp?'≈ '+fmt(lvSol*sp):''}</span></div>
+      <div class="presets">${[0.01,0.05,0.1,0.25,0.5].map(v=>`<button class="sol ${v===lvSol?'on':''}" data-lsol="${v}">◎${v}</button>`).join('')}</div>
+      <div class="presets pctrow"><input class="ordinput sm num" id="lvCustom" placeholder="Custom ◎" inputmode="decimal" style="flex:1"></div>` : `
+      <div class="ordlabel">You hold <span style="color:var(--t3)">· ${h ? h.amount.toLocaleString(undefined,{maximumFractionDigits:2})+' '+esc(t.sym)+(h.price?' ≈ '+fmt(h.value):'') : 'none of '+esc(t.sym)}</span></div>
+      <div class="presets pctrow">${[25,50,100].map(p=>`<button class="pct ${p===lvPct?'on':''}" data-lpct="${p}">${p}%</button>`).join('')}</div>`}
+      <button class="mini" id="lvQuoteBtn" style="width:100%;margin:8px 0" ${lvBusy?'disabled':''}>${lvBusy?'Working…':'Get Jupiter quote'}</button>
+      <div id="lvQuoteBox" class="hint">${lvQuote ? lvQuote.html : 'Quotes come from Jupiter, the Solana aggregator. Slippage 1.5%.'}</div>
+      <label class="remember" style="margin-top:8px"><input type="checkbox" id="lvSend" ${window.__msSendForReal?'checked':''}> <span>Send for real <em>otherwise Phantom signs and nothing is sent (test mode)</em></span></label>
+      <button class="${lvSide==='buy'?'primary':'danger'}" id="lvGo" style="width:100%;margin-top:8px" ${!lvQuote||lvBusy?'disabled':''}>${window.__msSendForReal ? (lvSide==='buy'?'Buy':'Sell')+' with Phantom' : 'Sign with Phantom (test, not sent)'}</button>
+      <div id="lvStatus" class="hint" style="margin-top:8px"></div>
+      <div class="hint" style="margin-top:8px">Live orders never touch the paper accounts or the leaderboard. Market cap, grade and alerts work the same.</div>
+    </div>`;
+  op.querySelectorAll('[data-ls]').forEach(b => b.onclick = () => { lvSide = b.dataset.ls; lvQuote = null; renderDetail(); });
+  op.querySelectorAll('[data-lsol]').forEach(b => b.onclick = () => { lvSol = +b.dataset.lsol; lvQuote = null; renderDetail(); });
+  op.querySelectorAll('[data-lpct]').forEach(b => b.onclick = () => { lvPct = +b.dataset.lpct; lvQuote = null; renderDetail(); });
+  const cu = $('lvCustom'); if (cu) cu.onchange = () => { const v = +cu.value; if (v > 0) { lvSol = Math.round(v*1e4)/1e4; lvQuote = null; renderDetail(); } };
+  $('lvSend').onchange = e => { window.__msSendForReal = e.target.checked; if (e.target.checked && !confirm('Send for real: Phantom will broadcast the signed swap and real SOL moves. Continue?')) { window.__msSendForReal = false; } renderDetail(); };
+  $('lvQuoteBtn').onclick = async () => {
+    lvBusy = true; renderDetail();
+    try {
+      let q, inMint, outMint, amount;
+      if (lvSide === 'buy') { inMint = LIVE.SOL_MINT; outMint = t.addr; amount = Math.floor(lvSol * 1e9); }
+      else { if (!h) throw new Error('This wallet holds no ' + t.sym); inMint = t.addr; outMint = LIVE.SOL_MINT; amount = Math.floor(h.amount * (lvPct/100) * Math.pow(10, h.dec ?? 6)); }
+      q = await LIVE.quote({ inputMint: inMint, outputMint: outMint, amount });
+      const dec = lvSide === 'buy' ? await LIVE.decimals(t.addr) : 9;
+      const out = +q.outAmount / Math.pow(10, dec), impact = +q.priceImpactPct * 100, minOut = out * (1 - (q.slippageBps||150)/10000);
+      const need = lvSide === 'buy' ? lvSol + 0.01 : 0.01;
+      const funds = bal >= need ? '' : `<div class="warn" style="margin-top:4px">Wallet has ◎${bal.toFixed(3)}; this order needs about ◎${need.toFixed(3)} including fees. <a href="#" id="lvDep">Deposit</a> or size down. Test mode still works.</div>`;
+      lvQuote = { q, html: `<b>${lvSide==='buy' ? 'You get ≈ '+out.toLocaleString(undefined,{maximumFractionDigits:2})+' '+esc(t.sym) : 'You get ≈ ◎'+out.toFixed(4)+(sp?' ('+fmt(out*sp)+')':'')}</b><div>Min after slippage ${lvSide==='buy' ? minOut.toLocaleString(undefined,{maximumFractionDigits:2}) : '◎'+minOut.toFixed(4)} · price impact ${impact.toFixed(2)}% · route ${q.routePlan?.map(r=>r.swapInfo?.label).filter(Boolean).slice(0,3).join(' → ') || 'direct'}</div>${funds}` };
+    } catch (e) { lvQuote = null; toast('Quote failed: ' + (e.message || e)); }
+    lvBusy = false; renderDetail(); const d = $('lvDep'); if (d) d.onclick = ev => { ev.preventDefault(); openWalletDeposit(); };
+  };
+  $('lvGo').onclick = async () => {
+    if (!lvQuote) return; const send = !!window.__msSendForReal;
+    if (send && lvSide === 'buy' && bal < lvSol + 0.01) return toast('Not enough SOL in the wallet for a real order');
+    lvBusy = true; renderDetail(); const st = () => $('lvStatus');
+    try {
+      if (st()) st().textContent = 'Building the swap with Jupiter…';
+      const tx = await LIVE.buildSwap(lvQuote.q, WAL.address());
+      if (st()) st().textContent = send ? 'Phantom is asking you to approve…' : 'Phantom is asking you to sign (test mode, nothing is sent)…';
+      const r = await LIVE.signWithPhantom(tx, { send });
+      lvBusy = false; lvQuote = null; renderDetail();
+      if (r.signature) { toast('Sent · ' + r.signature.slice(0, 8) + '…'); $('lvStatus').innerHTML = `Sent. <a href="${LIVE.explorer(r.signature)}" target="_blank" rel="noopener">View on Solscan</a>. The wallet card updates in a moment.`; setTimeout(() => WAL.refresh(), 8000); setTimeout(() => WAL.refresh(), 25000); }
+      else { toast('Signed in test mode — not sent'); $('lvStatus').textContent = 'Phantom signed the real transaction. It was not broadcast, so nothing moved. Tick "Send for real" to trade.'; }
+      fireAlert?.('live', t, (send ? 'Live ' : 'Test ') + lvSide + ' ' + t.sym + (lvSide==='buy' ? ' ◎' + lvSol : ' ' + lvPct + '%'));
+    } catch (e) { lvBusy = false; renderDetail(); toast('Phantom: ' + (e.message || e)); const s2 = $('lvStatus'); if (s2) s2.textContent = e.message || String(e); }
+  };
+}
 let bottomTab = 'positions';
 function renderPositions(){
   const el = $('bottomPanel'); if (!el) return; el.scrollTop = el.scrollTop;
+  if (liveMode && bottomTab === 'positions') {
+    const hs = WAL.list();
+    el.innerHTML = hs.length ? `<table class="btbl"><thead><tr><th>Token</th><th class="num">Amount</th><th class="num">Price</th><th class="num">Value</th><th>Grade</th><th></th></tr></thead><tbody>${hs.map((h,i)=>`<tr class="pos"><td class="sym">${esc(h.sym)}</td><td class="num">${h.amount.toLocaleString(undefined,{maximumFractionDigits:2})}</td><td class="num">${h.price?fmtP(h.price):'—'}</td><td class="num">${h.price?fmt(h.value):'—'}</td><td>${h.g?gBadge(h.g):''}</td><td>${h.token?`<button class="mini" data-lsell="${i}">Sell</button>`:''}</td></tr>`).join('')}</tbody></table><div class="hint" style="padding:6px 10px">Real holdings in Phantom, read from the chain. Sell opens the live ticket.</div>` : '<div class="empty">No tokens in this wallet yet. Buy one from the ticket, or deposit SOL first (+ Deposit).</div>';
+    el.querySelectorAll('[data-lsell]').forEach(b => b.onclick = () => { const h = hs[+b.dataset.lsell]; if (!tokens.find(x => x.addr === h.token.addr)) { h.token.grade = grade(h.token); tokens.push(h.token); } selected = tokens.find(x => x.addr === h.token.addr) || h.token; lvSide = 'sell'; lvQuote = null; renderDetail(); document.querySelector('.m-segs [data-seg=chart]')?.click(); });
+    return;
+  }
+  if (liveMode && bottomTab === 'orders') { el.innerHTML = '<div class="empty">Live mode has market orders only (Jupiter swaps). Switch to a paper account for limit and stop orders.</div>'; return; }
   if (bottomTab === 'orders'){
     el.innerHTML = orders.length ? `<table class="btbl"><thead><tr><th>Token</th><th>Type</th><th>Side</th><th>Trigger</th><th>Amount</th><th></th></tr></thead><tbody>${orders.map(o=>`<tr><td class="sym">${o.sym}</td><td>${o.kind}</td><td><span class="side ${o.dir}">${o.dir.toUpperCase()}</span></td><td class="num">${fmtP(o.trigger)}</td><td class="num">${fmt(o.usd)}</td><td><button class="mini" data-cancel="${o.id}">Cancel</button></td></tr>`).join('')}</tbody></table>` : '<div class="empty">No open orders. Use the Limit or Stop tabs to place one.</div>';
     el.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=()=>{ orders=orders.filter(o=>o.id!==b.dataset.cancel); save(); renderPositions(); if(selected) renderDetail(); toast('Order cancelled'); });
@@ -900,7 +1014,14 @@ function enterGuest(){ const l=$('landing'); if(l) l.style.display='none'; guest
 window.__authMode = window.__authMode || 'login';
 function showAuth(){ const l=$('landing'); if(l) l.style.display='none'; $('auth').style.display = 'flex'; $('app').style.display = 'none'; const bk=$('auth-back'); if(bk) bk.style.display = onPhone() ? 'none' : ''; checkServer(); }
 function showApp(){ $('auth').style.display = 'none'; $('app').style.display = 'block'; }
-function setMode(m){ window.__authMode = m; $('tab-login').classList.toggle('on', m==='login'); $('tab-reg').classList.toggle('on', m==='reg'); $('nick-l').style.display = m==='reg'?'block':'none'; const cl=$('consent-l'); if (cl) cl.style.display = m==='reg'?'flex':'none'; $('authbtn').textContent = m==='reg'?'Create account':'Log in'; $('f-pass').autocomplete = m==='reg'?'new-password':'current-password'; $('autherr').textContent=''; const h=$('auth-h'); if(h) h.textContent = m==='reg' ? 'Create your account' : 'Welcome back'; const sub=$('auth-sub'); if(sub) sub.textContent = m==='reg' ? 'Free while in beta. $10,000 of paper money to start.' : 'Log in to pick up where you left off.'; const sw=$('auth-switch'); if(sw) sw.innerHTML = m==='reg' ? 'Already have an account? <a href="#" data-mode="login">Log in</a>' : 'New here? <a href="#" data-mode="reg">Create an account</a>'; }
+function setMode(m){ window.__authMode = m; $('tab-login').classList.toggle('on', m==='login'); $('tab-reg').classList.toggle('on', m==='reg'); $('nick-l').style.display = m==='reg'?'block':'none';
+  // forgot = email only; newpass = password only (arrived from a reset link on the Express server)
+  const pwL = $('f-pass').closest('label'), emL = $('f-email').closest('label'), rem = $('f-remember')?.closest('label'), fg = $('forgot-l');
+  if (pwL) pwL.style.display = m==='forgot' ? 'none' : ''; if (emL) emL.style.display = m==='newpass' ? 'none' : ''; if (rem) rem.style.display = (m==='forgot'||m==='newpass') ? 'none' : ''; if (fg) fg.style.display = m==='login' ? '' : 'none';
+  $('f-pass').required = m!=='forgot'; $('f-email').required = m!=='newpass'; const cl=$('consent-l'); if (cl) cl.style.display = m==='reg'?'flex':'none'; $('authbtn').textContent = m==='reg'?'Create account': m==='forgot' ? 'Send reset link' : m==='newpass' ? 'Set new password' : 'Log in'; $('f-pass').autocomplete = m==='reg'?'new-password':'current-password'; $('autherr').textContent=''; const h=$('auth-h'); if(h) h.textContent = m==='reg' ? 'Create your account' : m==='forgot' ? 'Reset your password' : m==='newpass' ? 'Choose a new password' : 'Welcome back'; const sub=$('auth-sub'); if(sub) sub.textContent = m==='forgot' ? 'Enter your email and we will send a link to set a new password.' : m==='newpass' ? 'At least 8 characters.' : m==='reg' ? 'Free while in beta. $10,000 of paper money to start.' : 'Log in to pick up where you left off.'; const sw=$('auth-switch'); if(sw) sw.innerHTML = m==='reg' ? 'Already have an account? <a href="#" data-mode="login">Log in</a>' : (m==='forgot'||m==='newpass') ? 'Remembered it? <a href="#" data-mode="login">Back to log in</a>' : 'New here? <a href="#" data-mode="reg">Create an account</a>'; }
+{ const f=$('forgot'); if (f) f.onclick = e => { e.preventDefault(); setMode('forgot'); $('f-email').focus(); }; }
+// a reset link from the Express server lands here as ?reset=TOKEN
+window.__resetToken = new URLSearchParams(location.search).get('reset') || '';
 document.addEventListener('click', e => { const a = e.target.closest && e.target.closest('#auth-switch a[data-mode]'); if (a) { e.preventDefault(); setMode(a.dataset.mode); } });
 { const pw=$('f-pass'), eye=$('pw-eye'); if (eye) eye.onclick = () => { const show = pw.type === 'password'; pw.type = show ? 'text' : 'password'; eye.textContent = show ? 'Hide' : 'Show'; }; }
 { const r=$('f-remember'); if (r) { const pref = localStorage.getItem('ms_remember'); r.checked = pref == null ? true : pref === '1'; r.onchange = () => localStorage.setItem('ms_remember', r.checked ? '1' : '0'); } }
@@ -908,6 +1029,8 @@ $('authform').onsubmit = async e => {
   e.preventDefault(); $('autherr').textContent=''; const btn=$('authbtn'); btn.disabled = true; const label = btn.textContent; btn.textContent = window.__authMode==='reg' ? 'Creating account…' : 'Logging in…';
   const email = $('f-email').value.trim(), password = $('f-pass').value, nickname = $('f-nick').value.trim(); const remember = $('f-remember') ? $('f-remember').checked : true;
   try {
+    if (window.__authMode==='forgot') { const msg = await backend.forgotPassword(email); $('autherr').textContent = ''; toast(msg); const sub=$('auth-sub'); if (sub) sub.textContent = msg; return; }
+    if (window.__authMode==='newpass') { if (password.length < 8) throw new Error('Password must be at least 8 characters'); await backend.resetPassword(window.__resetToken, password); toast('Password changed — log in with it'); history.replaceState(null, '', location.pathname + (location.search.includes('m=1') ? '?m=1' : '')); window.__resetToken=''; setMode('login'); return; }
     if (window.__authMode==='reg' && password.length < 8) throw new Error('Password must be at least 8 characters');
     if (window.__authMode==='reg' && $('f-consent') && !$('f-consent').checked) throw new Error('Please agree to the Terms and Privacy Policy');
     ME = await (window.__authMode==='reg' ? backend.register({ email, password, nickname }, remember) : backend.login({ email, password }, remember));
@@ -916,7 +1039,7 @@ $('authform').onsubmit = async e => {
   } catch (err) { $('autherr').textContent = err.message; } finally { btn.disabled = false; btn.textContent = label; }
 };
 $('guest').onclick = enterGuest;
-function logout(){ const was = signedIn(); clearTimeout(syncTimer); WAL.disconnect(false); dirtyAcct = dirtyProfile = false; if (was) backend.logout().catch(()=>{}); else session.clear(); TOKEN = null; ME = null; guest = false; localStorage.removeItem('ms_guest'); positions=[]; trades=[]; orders=[]; selected=null; announce('logout'); notifyHost({ type:'ms-signed-out' }); showLanding(); setMode('login'); }
+function logout(){ const was = signedIn(); clearTimeout(syncTimer); WAL.disconnect(false); liveMode = false; dirtyAcct = dirtyProfile = false; if (was) backend.logout().catch(()=>{}); else session.clear(); TOKEN = null; ME = null; guest = false; localStorage.removeItem('ms_guest'); positions=[]; trades=[]; orders=[]; selected=null; announce('logout'); notifyHost({ type:'ms-signed-out' }); showLanding(); setMode('login'); }
 $('logout').onclick = logout;
 // ---------- broker picker ----------
 const BROKERS = [
@@ -934,11 +1057,20 @@ function openBrokerModal(){ const g=$('brokerGrid'); if(!g) return;
   const draw=()=>{ g.innerHTML = BROKERS.map(b=>{ const st=brokerState[b.name]; const ph = b.name==='Phantom' ? WAL.brokerCard() : null; const live = b.paper || !!ph; return `<button type="button" class="brokercard ${b.paper||ph?.state==='connected'?'active':live?'ready':'soon'} ${st||''}" data-b="${b.name}" ${st==='connecting'?'disabled':''}>
     <div class="brokericon">${b.paper||ph?.state==='connected'?'<span class="bdot ok"></span>':(b.name[0])}</div><b>${b.name}</b><div class="hint">${ph ? 'Solana wallet · read-only' : b.desc}</div>
     ${b.paper?'<div class="bstat ok">Connected</div>': st==='connecting'?'<div class="bstat"><span class="spin"></span> Connecting…</div>': st==='failed'?'<div class="bstat bad">Connection failed</div>': ph ? `<div class="bstat ${ph.state==='connected'?'ok':''}">${ph.label}</div>` : `<div class="bstat">★ ${b.rating} · Connect</div>`}</button>`; }).join('');
-    g.querySelectorAll('.brokercard').forEach(c=>c.onclick=async ()=>{ const n=c.dataset.b; if(c.classList.contains('active')){ toast('Paper trading is already connected'); return; }
-      if(n==='Phantom'){ brokerState[n]='connecting'; draw(); $('brokerMsg').textContent='Waiting for Phantom…'; try { const msg = await WAL.brokerClick(); brokerState[n]=null; draw(); $('brokerMsg').textContent=msg; if (WAL.connected()) { show('portfolio'); $('brokerModal').style.display='none'; } } catch(e){ brokerState[n]=null; draw(); $('brokerMsg').innerHTML='<span class="warn">'+esc(e.message||'Phantom refused the connection')+'</span>'; } return; }
+    g.querySelectorAll('.brokercard').forEach(c=>c.onclick=async ()=>{ const n=c.dataset.b; if(c.classList.contains('active') && n!=='Phantom'){ toast('Paper trading is always connected'); return; }
+      if(n==='Phantom'){
+        if (WAL.connected()) { $('brokerMsg').innerHTML = `Phantom <b>${esc(WAL.short(WAL.address()))}</b> is connected. <button class="mini primary" id="bkSwitch">${liveMode?'Trading live':'Switch to live wallet'}</button> <button class="mini" id="bkPaper" ${liveMode?'':'disabled'}>Back to paper</button> <button class="mini" id="bkDisc">Disconnect</button>`;
+          $('bkSwitch').onclick=()=>{ setLiveMode(true); $('brokerModal').style.display='none'; show('trade'); }; $('bkPaper').onclick=()=>{ setLiveMode(false); draw(); c.click(); }; $('bkDisc').onclick=async ()=>{ await WAL.disconnect(true); if (liveMode) setLiveMode(false); draw(); $('brokerMsg').textContent='Phantom disconnected. Paper trading is active.'; }; return; }
+        brokerState[n]='connecting'; draw(); $('brokerMsg').textContent='Waiting for Phantom…';
+        const done = setTimeout(()=>{ if (brokerState[n]==='connecting') { brokerState[n]=null; draw(); $('brokerMsg').textContent='Still waiting for Phantom. If nothing opened, tap Phantom again.'; } }, 20000);
+        try { const msg = await WAL.brokerClick(); clearTimeout(done); brokerState[n]=null; draw(); $('brokerMsg').textContent=msg; if (WAL.connected()) { setLiveMode(true); $('brokerModal').style.display='none'; show('trade'); } } catch(e){ clearTimeout(done); brokerState[n]=null; draw(); $('brokerMsg').innerHTML='<span class="warn">'+esc(e.message||'Phantom refused the connection')+'</span>'; } return; }
       brokerState[n]='connecting'; draw(); $('brokerMsg').textContent='Contacting '+n+'…';
       setTimeout(()=>{ brokerState[n]='failed'; draw(); $('brokerMsg').innerHTML='<span class="warn">Couldn\'t connect to '+n+'.</span> Live broker connections aren\'t available yet — MemeScreen is paper trading only for now. Your paper account is unaffected.'; }, 1600); }); };
-  draw(); $('brokerMsg').textContent='Pick a broker to connect. Paper Trading is always available.'; $('brokerModal').style.display='flex';
+  draw();
+  if (WAL.connected()) { $('brokerMsg').innerHTML = `Phantom <b>${esc(WAL.short(WAL.address()))}</b> is connected${liveMode?' and active':''}. <button class="mini primary" id="bkSwitch">${liveMode?'Trading live':'Switch to live wallet'}</button> <button class="mini" id="bkPaper" ${liveMode?'':'disabled'}>Back to paper</button> <button class="mini" id="bkDisc">Disconnect Phantom</button>`;
+    $('bkSwitch').onclick=()=>{ setLiveMode(true); $('brokerModal').style.display='none'; show('trade'); }; $('bkPaper').onclick=()=>{ setLiveMode(false); openBrokerModal(); }; $('bkDisc').onclick=async ()=>{ await WAL.disconnect(true); if (liveMode) setLiveMode(false); draw(); $('brokerMsg').textContent='Phantom disconnected. Paper trading is active.'; }; }
+  else $('brokerMsg').textContent='Pick a broker to connect. Paper Trading is always available.';
+  $('brokerModal').style.display='flex';
 }
 const bb=$('brokerBtn'); if(bb) bb.onclick=openBrokerModal;
 const bc=$('brokerClose'); if(bc) bc.onclick=()=>{ $('brokerModal').style.display='none'; };
@@ -977,6 +1109,8 @@ async function enterApp(){
   $('acct').innerHTML = guest ? 'Browsing as guest. Your trades are saved only in this browser. Log out to create an account.' : `Signed in as <b>${esc(ME?.email||'')}</b> (${esc(ME?.nickname||'')})${session.get()?.remember ? ' · staying signed in on this device' : ' · signed in for this browser session only'}. Passwords are stored only as a bcrypt hash.`;
   $('apiurl').textContent = backend.label;
   notifyHost({ type:'ms-signed-in', user: guest ? 'guest' : (ME?.nickname||'') });
+  if (signedIn()) { let a = null; try { a = localStorage.getItem('ms_notif_asked_' + userKey()); } catch {} if (a === 'yes') notifyHost({ type:'ms-push-register' }); }   // phones that said yes re-register their push token each login
+  setTimeout(askNotifications, 1500);
   renderAlerts(); fetchSol(); loadMarket();
   await refresh(); rollWeek(); syncStream(); bindBottomTabs(); show('dash');
   if (!window._ms_timers){ window._ms_timers = 1;
@@ -999,8 +1133,10 @@ function bindBottomTabs(){
 })();
 
 // ---------- boot ----------
-load(); loadPrefs(); renderAlerts(); setMode('login');
-if (signedIn()) {
+load(); loadPrefs(); renderAlerts(); setMode(window.__resetToken ? 'newpass' : 'login');
+if (window.__resetToken) {
+  showAuth();                                   // arrived from a password-reset link: set the new password first
+} else if (signedIn()) {
   showApp(); enterApp().catch(err => { console.error('enterApp failed', err); });       // saved session → straight into the app
 } else if (localStorage.getItem('ms_guest')) {
   guest = true; showApp(); enterApp().catch(err => console.error('enterApp failed', err));

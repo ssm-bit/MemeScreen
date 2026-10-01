@@ -17,5 +17,6 @@ export default {
     jsKey: 'd5ZabG61ROOuG6wxyhZT0krGp3faDiNOyTdovytV',                           // JavaScript key  (NOT the master key — never put the master key in a web app)
     serverUrl: 'https://parseapi.back4app.com',
   },
+  jupiterKey: '',                        // optional: a free key from portal.jup.ag raises the Jupiter quote rate limit for live orders
   expressUrl: '',                        // '' = same machine that served the page, port 4000
 };

@@ -108,6 +108,7 @@
         <label id="nick-l" style="display:none">Nickname<input id="f-nick" maxlength="20" placeholder="shown on leaderboards" autocomplete="nickname"></label>
         <label>Email<input id="f-email" type="email" autocomplete="email" placeholder="you@example.com" required></label>
         <label>Password<span class="pwwrap"><input id="f-pass" type="password" autocomplete="current-password" placeholder="at least 8 characters" required minlength="1"><button type="button" id="pw-eye" class="pw-eye">Show</button></span></label>
+        <div class="forgotrow" id="forgot-l"><a href="#" id="forgot">Forgot password?</a></div>
         <label class="remember"><input type="checkbox" id="f-remember" checked> <span>Keep me signed in <em>on this device</em></span></label>
         <label class="remember" id="consent-l" style="display:none"><input type="checkbox" id="f-consent"> <span>I agree to the <a href="#" data-legal>Terms of Service and Privacy Policy</a></span></label>
         <div id="autherr" class="autherr" role="alert"></div>
@@ -116,7 +117,7 @@
       <div class="auth-or"><span>or</span></div>
       <button id="guest" type="button" class="ghost">Browse as guest</button>
       <div class="auth-switch" id="auth-switch"></div>
-      <div class="authnote">Paper trading only — no real funds, no wallet connection. Passwords are stored only as a bcrypt hash.</div>
+      <div class="authnote">Paper trading only — no real funds. A connected Phantom wallet is read-only. Passwords are stored only as a bcrypt hash.</div>
       <div class="srvstate"><span id="srvstate"></span> · <a href="#" id="auth-server">change</a></div>
     </div>
   </main>
@@ -130,7 +131,7 @@
       <button data-v="dash" class="on">Dashboard</button><button data-v="screen">Screener</button><button data-v="trade">Trade</button><button data-v="news">News</button><button data-v="portfolio">Portfolio</button><button data-v="comp">Competitions</button><button data-v="settings">Settings<span class="badge" id="abadge" style="display:none">0</span></button>
     </nav>
     <div class="wallet">
-      <select id="acctSel" class="acctsel" title="Paper trading account"></select><button id="brokerBtn" class="mini">Broker</button>
+      <select id="acctSel" class="acctsel" title="Account: paper or live wallet"></select><button id="depositBtn" class="mini" title="Add money">+ Deposit</button><button id="brokerBtn" class="mini">Broker</button>
       <div>Equity<b class="num" id="equity">$10,000.00</b></div><div>P&amp;L<b class="num" id="pnl">$0.00</b></div><div>This week<b class="num" id="wk">+0.0%</b></div>
       <div class="who"><span id="whoami"></span><button id="logout" class="mini">Log out</button></div>
     </div>
@@ -214,12 +215,32 @@
     </section></div>
     <div class="view" id="v-settings"><section>
       <div class="grid2">
-        <div class="card"><h3>Account</h3><div id="acct" class="hint"></div><h3 style="margin-top:18px">Paper trading accounts</h3><div class="hint" style="margin-bottom:8px">Create separate paper portfolios, like TradingView. Switch between them from the header.</div><div id="acctMgr"></div><h3 style="margin-top:18px">Connect a broker</h3><div class="hint" style="margin-bottom:8px">Trade memecoins for real through a connected wallet or broker. Coming later — paper only for now.</div><button class="mini" id="connectBroker">Connect broker</button></div>
+        <div class="card"><h3>Account</h3><div id="acct" class="hint"></div><div id="walletLine" class="hint" style="margin-top:6px"></div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="mini primary" id="depositBtn2">Deposit</button><button class="mini" id="withdrawBtn">Withdraw</button></div><div class="hint" style="margin-top:6px">Deposits add paper money to the active account (any amount, so you can trade small). On the live wallet, Deposit shows your Phantom address.</div><h3 style="margin-top:18px">Paper trading accounts</h3><div class="hint" style="margin-bottom:8px">Create separate paper portfolios, like TradingView. Switch between them from the header.</div><div id="acctMgr"></div><h3 style="margin-top:18px">Connect a broker</h3><div class="hint" style="margin-bottom:8px">Trade memecoins for real through a connected wallet or broker. Coming later — paper only for now.</div><button class="mini" id="connectBroker">Connect broker</button></div>
         <div class="card"><h3>Notifications & alerts</h3><div id="notifstate" class="hint" style="margin-bottom:10px"></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="primary" id="enable">Enable browser notifications</button><button id="testn">Send a test</button></div><h2 style="margin-top:16px">Rules</h2><div id="rules"></div><h2 style="margin-top:16px">Recent alerts</h2><div id="alog" style="max-height:200px;overflow:auto"></div><h3 style="margin-top:18px">Fees model</h3><div class="row"><span>Platform fee</span><b class="num">1.0%</b></div><div class="row"><span>LP fee</span><b class="num">0.3%</b></div><div class="row"><span>Network fee</span><b class="num">$0.10</b></div><h3 style="margin-top:18px">Legal</h3><div class="hint" style="margin-bottom:8px">Privacy policy, terms of service, accessibility and data deletion.</div><button class="mini" data-legal>View legal &amp; privacy</button><h3 style="margin-top:18px">Server</h3><div class="row"><span>Backend</span><b class="num" id="apiurl"></b></div><button id="setapi" class="mini">Change server</button><div style="margin-top:14px"><button class="danger" id="reset">Reset this account to $10,000</button></div></div>
       </div>
     </section></div>
   </main>
   <footer>Paper trading only. Simulated funds. Nothing here is financial advice. Prices from DexScreener &amp; PumpPortal, history from GeckoTerminal. Grades are a heuristic, not a security audit.</footer>
+</div>
+<!-- notifications ask (shown once per login) -->
+<div id="notifModal" class="modal" style="display:none">
+  <div class="modalbox" style="max-width:420px">
+    <div class="modalhead"><h2 style="margin:0">Get alerts as notifications?</h2></div>
+    <p class="hint">MemeScreen can notify you when a watched token moves, a grade drops, an order fills, or a saved screen finds a match. On the iPhone app these arrive as real push notifications even when the app is closed.</p>
+    <div style="display:flex;gap:8px;margin-top:10px"><button class="primary" id="notifYes" style="flex:1">Turn on</button><button id="notifNo" style="flex:1">Not now</button></div>
+    <p class="hint" style="margin-top:8px">You can change this any time in Settings → Notifications.</p>
+  </div>
+</div>
+<!-- wallet deposit -->
+<div id="walletDepModal" class="modal" style="display:none">
+  <div class="modalbox" style="max-width:420px;text-align:center">
+    <div class="modalhead"><h2 style="margin:0">Deposit to Phantom</h2><button id="wdClose" class="mini" aria-label="Close">✕</button></div>
+    <p class="hint">Send SOL to this address from an exchange or another wallet. MemeScreen never holds or moves funds; this is your Phantom wallet.</p>
+    <div id="wdQr" style="display:inline-block;background:#fff;padding:6px;border-radius:10px;margin:8px 0"></div>
+    <div id="wdAddr" class="num" style="word-break:break-all;font-size:12px;margin:8px 0"></div>
+    <button class="mini primary" id="wdCopy">Copy address</button>
+    <p class="hint" style="margin-top:10px">Keep at least ◎0.02 for network fees. Small test sizes (◎0.01 to ◎0.1) are fine for trying live orders.</p>
+  </div>
 </div>
 <!-- broker picker -->
 <div id="brokerModal" class="modal" style="display:none">
