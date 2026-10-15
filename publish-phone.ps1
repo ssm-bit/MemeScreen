@@ -28,6 +28,11 @@ if (Test-Path $acctFile) { try { $saved = Get-Content $acctFile -Raw | ConvertFr
 Write-Host "Linking to Expo project $projId ..."
 cmd /c "npx --yes eas-cli@latest init --id $projId --non-interactive --force"
 
+# Phantom needs a custom URL scheme to send the phone back to this app
+$ajPath = Join-Path $expo 'app.json'
+$aj = Get-Content $ajPath -Raw
+if ($aj -notmatch '"scheme"') { $aj = $aj -replace '"expo"\s*:\s*\{', '"expo": { "scheme": "memescreen",'; Set-Content -Path $ajPath -Value $aj -Encoding UTF8; Write-Host 'Added scheme "memescreen" to app.json' }
+
 # one-time: gives the project a runtime version and an updates URL in app.json
 $aj = Get-Content (Join-Path $expo 'app.json') -Raw
 if ($aj -notmatch '"updates"' -or $aj -notmatch 'runtimeVersion') {

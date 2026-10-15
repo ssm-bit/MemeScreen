@@ -19,7 +19,7 @@ nacl.setPRNG((x, n) => { const v = new Uint8Array(n); global.crypto.getRandomVal
 // belt and braces: the page already locks itself on a phone, this makes sure of it before anything paints
 const LOCK = `(function(){ var m=document.querySelector('meta[name=viewport]'); if(!m){ m=document.createElement('meta'); m.name='viewport'; (document.head||document.documentElement).appendChild(m); } m.content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover'; })(); true;`;
 
-const SHELL_VERSION = '8';
+const SHELL_VERSION = '9';
 const FALLBACK_PROJECT_ID = 'ba75b1bb-0046-4852-8543-a10363235b2b';   // the team's Expo project (nae23); used when app.json has none   // shown in the app under Settings → Notifications, so an old shell is easy to spot
 const APP_URL = 'https://ssm-bit.github.io/MemeScreen/?m=1';
 const APP_ORIGIN = APP_URL.replace(/^(https?:\/\/[^/]+).*$/, '$1');
@@ -36,7 +36,7 @@ let dapp = null;                                   // { publicKey, secretKey }
 let phantomShared = null, phantomSession = null;   // set after connect; needed to sign
 function phantomConnectUrl() {
   dapp = nacl.box.keyPair();
-  const redirect = ExpoLinking.createURL('phantom');  // exp://…/--/phantom in Expo Go, memescreen://phantom in a build
+  let redirect; try { redirect = ExpoLinking.createURL('phantom'); } catch (e) { redirect = (Constants.expoConfig?.scheme || 'memescreen') + '://phantom'; }   // exp://…/--/phantom in Expo Go, memescreen://phantom in a build
   const q = new URLSearchParams({ app_url: APP_ORIGIN, dapp_encryption_public_key: bs58.encode(dapp.publicKey), redirect_link: redirect, cluster: 'mainnet-beta' });
   return q.toString();   // caller prefixes phantom://v1/connect? (app scheme) or https://phantom.app/ul/v1/connect? (universal link)
 }
@@ -61,7 +61,8 @@ function phantomSignUrl(txB58, send) {
   const nonce = nacl.randomBytes(24);
   const payload = new TextEncoder().encode(JSON.stringify({ transaction: txB58, session: phantomSession }));
   const enc = nacl.box.after(payload, nonce, phantomShared);
-  const q = new URLSearchParams({ dapp_encryption_public_key: bs58.encode(dapp.publicKey), nonce: bs58.encode(nonce), redirect_link: ExpoLinking.createURL('phantom-sign'), payload: bs58.encode(enc) });
+  let back; try { back = ExpoLinking.createURL('phantom-sign'); } catch (e) { back = (Constants.expoConfig?.scheme || 'memescreen') + '://phantom-sign'; }
+  const q = new URLSearchParams({ dapp_encryption_public_key: bs58.encode(dapp.publicKey), nonce: bs58.encode(nonce), redirect_link: back, payload: bs58.encode(enc) });
   return (send ? 'signAndSendTransaction' : 'signTransaction') + '?' + q.toString();
 }
 const openPhantom = path => Linking.openURL('phantom://v1/' + path).catch(() => Linking.openURL('https://phantom.app/ul/v1/' + path));
