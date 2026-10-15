@@ -135,7 +135,7 @@ export default function App() {
     if (m.type === 'ms-wallet-ack') { pendingWallet.current = null; return; }
     if (m.type === 'ms-wallet-disconnect') { phantomShared = null; phantomSession = null; return; }
     if (m.type !== 'ms-alert') return;
-    Notifications.scheduleNotificationAsync({ content: { title: 'MemeScreen · ' + m.sym, body: m.msg, data: { addr: m.addr } }, trigger: null });
+    Notifications.scheduleNotificationAsync({ content: { title: 'MemeScreen \u00b7 ' + m.sym, body: m.msg, data: { addr: m.addr } }, trigger: null });
   };
 
   return (

@@ -10,7 +10,7 @@ Write-Host '== MemeScreen: publish the phone app to Expo ==' -ForegroundColor Cy
 $shell = Join-Path $root 'expo-shell\App.js'
 $hostedFile = Join-Path $root 'hosted-url.txt'
 $hosted = if (Test-Path $hostedFile) { (Get-Content $hostedFile -Raw).Trim().TrimEnd('/') } else { 'https://ssm-bit.github.io/MemeScreen' }
-$code = Get-Content $shell -Raw
+$code = Get-Content $shell -Raw -Encoding UTF8
 $code = [regex]::Replace($code, "const APP_URL = '[^']*';", "const APP_URL = '$hosted/?m=1';")
 Set-Content -Path (Join-Path $expo 'App.js') -Value $code -Encoding UTF8
 Write-Host "App.js -> $hosted/?m=1"

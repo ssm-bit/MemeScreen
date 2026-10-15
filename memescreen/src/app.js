@@ -35,7 +35,7 @@ const signedIn = () => !!TOKEN && !guest;
 // ---------- constants (restored) ----------
 const START = 10000, PLATFORM = 0.01, LP = 0.003, NET = 0.10, GRADES = ['F','D','C','B','A'];
 let liveMode = false;   // true = the connected Phantom wallet is the active account (see setLiveMode)
-const BUILD = '2026-10-15i';   // shown in Settings and under the login form, so a phone on an old build is easy to spot
+const BUILD = '2026-10-15k';   // shown in Settings and under the login form, so a phone on an old build is easy to spot
 const ICON = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="20" fill="#0A0D12"/><circle cx="50" cy="50" r="36" fill="none" stroke="#22E4A0" stroke-width="6"/><path d="M57 31L70 26" fill="none" stroke="#22E4A0" stroke-width="5" stroke-linecap="round"/><rect x="31" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><rect x="59" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><path d="M33 66Q50 68 67 58" fill="none" stroke="#22E4A0" stroke-width="5.5" stroke-linecap="round"/></svg>');
 
 // ---------- global news feed (ticker + alerts) ----------
@@ -325,7 +325,10 @@ function notifState(){ const el = $('notifstate');
     return; }
   if (!('Notification' in window)) { el.innerHTML = 'This browser does not support notifications. In-app alerts still work.'; return; } const p = Notification.permission; el.innerHTML = p === 'granted' ? '<span class="ok">Browser notifications are on.</span> Alerts show here and as system notifications, even when this tab is in the background.' : p === 'denied' ? '<span class="warn">Blocked.</span> Allow notifications for this site in your browser settings.' : 'Off. Enable to get system notifications when a watched memecoin moves.'; }
 function fireAlert(kind, t, msg){
-  const key = kind + ':' + t.addr; if (firedAt[key] && Date.now() - firedAt[key] < 300000) return; firedAt[key] = Date.now();
+  // remembered across reloads: the phone app opens a fresh page every launch, and the same launch alert must not push three times
+  if (!firedAt.__loaded) { firedAt.__loaded = 1; try { Object.assign(firedAt, JSON.parse(localStorage.getItem('ms_fired') || '{}')); } catch {} }
+  const key = kind + ':' + t.addr; if (firedAt[key] && Date.now() - firedAt[key] < 1800000) return; firedAt[key] = Date.now();
+  try { const keep = {}; for (const k in firedAt) if (k !== '__loaded' && Date.now() - firedAt[k] < 1800000) keep[k] = firedAt[k]; localStorage.setItem('ms_fired', JSON.stringify(keep)); } catch {}
   const a = { kind, addr: t.addr, sym: t.sym, msg, at: Date.now() }; alerts.unshift(a); alerts = alerts.slice(0,100); unread++; $('abadge').style.display = ''; $('abadge').textContent = unread;
   toast(msg); pushAlertCard(kind, t.sym, msg); sysNotify('MemeScreen · ' + t.sym, msg, key, t.addr); notifyHost({ type:'ms-alert', kind, sym:t.sym, addr:t.addr, msg, unread });
   renderAlerts(); saveLocal();
@@ -597,7 +600,8 @@ function ensureMsLine(){ if(msLineReg||!hasKC()) return; msLineReg=true; try { k
 function applyDrawings(force){
   if (!KC || !selected) return;
   // signature of what SHOULD be drawn — skip redraw if unchanged (so a drag isn't destroyed mid-move)
-  const sig = JSON.stringify(positions.filter(p=>p.addr===selected.addr).map(p=>[p.entry,p.tp,p.sl]).concat(orders.filter(o=>o.addr===selected.addr).map(o=>[o.trigger,o.kind])))+'|'+selected.addr;
+  const lp = liveMode ? liveFor(selected.addr) : null;
+  const sig = JSON.stringify(positions.filter(p=>p.addr===selected.addr).map(p=>[p.entry,p.tp,p.sl]).concat(orders.filter(o=>o.addr===selected.addr).map(o=>[o.trigger,o.kind])))+'|'+selected.addr+'|'+(lp ? [lp.entry, lp.tp, lp.sl].join(',') : '')+'|'+liveMode;
   if (!force && KC._drawSig === sig) return;
   KC._drawSig = sig;
   try { (KC._mslines||[]).forEach(id=>{ try{ KC.removeOverlay(id); }catch{} }); } catch {}
@@ -611,6 +615,9 @@ function applyDrawings(force){
     if (pos.sl) line(pos.sl, '#EF5350', `SL ${fmtP(pos.sl)} · −${fmt(Math.abs(usdAt(pos.sl))).replace('-','')}`);
   }
   for (const o of orders.filter(o=>o.addr===selected.addr)) line(o.trigger, '#F5C542', `${o.kind} ${o.dir} ${fmtP(o.trigger)} · ${fmt(o.usd)}`);
+  if (lp) { line(lp.entry, '#22E4A0', `LIVE entry ${fmtP(lp.entry)} · ◎${lp.solIn}`);
+    if (lp.tp) line(lp.tp, '#26A69A', `Live TP ${fmtP(lp.tp)} · +${fmt(Math.abs((lp.tp - lp.entry) * lp.qty))}`);
+    if (lp.sl) line(lp.sl, '#EF5350', `Live SL ${fmtP(lp.sl)} · −${fmt(Math.abs((lp.entry - lp.sl) * lp.qty))}`); }
 }
 // ---------- tick engine + targeted DOM updates ----------
 function tick(){
@@ -937,7 +944,26 @@ function renderDetail(){
   loadChart(t);
 }
 // ---------- live ticket (Phantom + Jupiter) ----------
-let lvSide = 'buy', lvSol = 0.05, lvPct = 50, lvQuote = null, lvBusy = false;
+let lvSide = 'buy', lvSol = 0.05, lvPct = 50, lvQuote = null, lvBusy = false, lvOut = 0;
+let lvUseTP = false, lvTP = 50, lvUseSL = false, lvSL = 25;   // live exits in %, armed on the buy ticket
+// Live positions the app knows about: written when a Phantom buy confirms (entry price, size, TP/SL). The wallet is the
+// truth for what you hold; this is the memory of what you paid, so the chart can draw the entry and the exits can be watched.
+let livePos = [];
+const liveKey = () => 'ms_live_' + userKey();
+function loadLive(){ livePos = store.get(liveKey()) || []; }
+function saveLive(){ store.set(liveKey(), livePos); }
+function liveFor(addr){ return livePos.find(p => p.addr === addr); }
+function livePnl(p){ const t = tokens.find(x => x.addr === p.addr); const px = t ? t.price : 0; const val = px * p.qty; return { px, val, usd: val - p.cost, pct: p.cost ? (val - p.cost) / p.cost * 100 : 0 }; }
+// an app-watched exit: the price crossed the level, so alert + open the sell ticket. Nothing sells by itself — Phantom needs a tap.
+function checkLiveExits(){
+  if (!livePos.length) return;
+  for (const p of livePos) { if (p.hit || (p.tp == null && p.sl == null)) continue; const t = tokens.find(x => x.addr === p.addr); if (!t || !t.price) continue;
+    const hitTP = p.tp != null && t.price >= p.tp, hitSL = p.sl != null && t.price <= p.sl; if (!hitTP && !hitSL) continue;
+    p.hit = hitTP ? 'tp' : 'sl'; saveLive();
+    fireAlert(hitTP ? 'new' : 'liq', t, `${t.sym} ${hitTP ? 'take-profit' : 'STOP-LOSS'} hit @ ${fmtP(t.price)} — open the app and approve the sale in Phantom`);
+    if (WAL.connected()) { selected = t; lvSide = 'sell'; lvPct = 100; lvQuote = null; setLiveMode(true); show('trade'); renderDetail(); document.querySelector('.m-segs [data-seg=chart]')?.click(); }
+  }
+}
 const FEE_RESERVE = 0.012;   // SOL kept back for network + priority fees and the wrapped-SOL account
 function renderLiveTicket(t, op){
   const h = WAL.list().find(x => x.mint === t.addr); const bal = WAL.solBalance(); const sp = WAL.solPrice() || solUsd || 0;
@@ -951,8 +977,14 @@ function renderLiveTicket(t, op){
       <div class="ordlabel">Amount <span style="color:var(--t3)">· ◎${lvSol} ${sp?'≈ '+fmt(lvSol*sp):''}</span></div>
       <div class="presets">${[0.01,0.05,0.1,0.25,0.5].map(v=>`<button class="sol ${v===lvSol?'on':''}" data-lsol="${v}">◎${v}</button>`).join('')}</div>
       <div class="presets pctrow">${[10,25,50,100].map(pc=>{ const v=Math.max(0, Math.floor((bal - FEE_RESERVE) * pc/100 * 1e4)/1e4); return `<button class="pct ${v>0&&Math.abs(v-lvSol)<1e-4?'on':''}" data-lsol="${v}" ${v<=0?'disabled':''} title="${pc}% of the SOL you can spend after keeping ◎${FEE_RESERVE} for fees">${pc===100?'Max':pc+'%'}</button>`; }).join('')}<input class="ordinput sm num" id="lvCustom" placeholder="Custom ◎" inputmode="decimal" style="flex:1;margin-left:6px"></div>
-      <div class="hint">Spendable ◎${Math.max(0, bal - FEE_RESERVE).toFixed(4)}${sp?' ('+fmt(Math.max(0, bal - FEE_RESERVE)*sp)+')':''} after a ◎${FEE_RESERVE} fee reserve. Shorts are paper only: a DEX swap can only buy or sell what you hold.</div>` : `
+      <div class="hint">Spendable ◎${Math.max(0, bal - FEE_RESERVE).toFixed(4)}${sp?' ('+fmt(Math.max(0, bal - FEE_RESERVE)*sp)+')':''} after a ◎${FEE_RESERVE} fee reserve. Shorts are paper only: a DEX swap can only buy or sell what you hold.</div>
+      <div class="exits">
+        <div class="exitrow"><label class="exitchk"><input type="checkbox" id="lvUseTP" ${lvUseTP?'checked':''}> Take profit</label><div class="exitfield tp"><span>+</span><input class="num" id="lvTPin" type="number" min="1" max="10000" inputmode="decimal" value="${lvTP}" ${lvUseTP?'':'disabled'}><span>%</span></div></div>
+        <div class="exitrow"><label class="exitchk"><input type="checkbox" id="lvUseSL" ${lvUseSL?'checked':''}> Stop loss</label><div class="exitfield sl"><span>−</span><input class="num" id="lvSLin" type="number" min="1" max="99" inputmode="decimal" value="${lvSL}" ${lvUseSL?'':'disabled'}><span>%</span></div></div>
+        <div class="hint">Exits are watched by the app, not the chain: when the level hits you get an alert and the sell ticket opens — you still approve the sale in Phantom.</div>
+      </div>` : `
       <div class="ordlabel">You hold <span style="color:var(--t3)">· ${h ? h.amount.toLocaleString(undefined,{maximumFractionDigits:2})+' '+esc(t.sym)+(h.price?' ≈ '+fmt(h.value):'') : 'none of '+esc(t.sym)}</span></div>
+      ${(() => { const p = liveFor(t.addr); if (!p) return ''; const r = livePnl(p); return `<div class="hint">Entry ${fmtP(p.entry)} · now ${fmtP(r.px)} · <b class="${r.usd>=0?'up':'down'}">${pct(r.pct)} (${fmt(r.usd)})</b>${p.tp?' · TP '+fmtP(p.tp):''}${p.sl?' · SL '+fmtP(p.sl):''}</div>`; })()}
       <div class="presets pctrow">${[25,50,100].map(p=>`<button class="pct ${p===lvPct?'on':''}" data-lpct="${p}">${p}%</button>`).join('')}</div>`}
       <button class="mini" id="lvQuoteBtn" style="width:100%;margin:8px 0" ${lvBusy?'disabled':''}>${lvBusy?'Working…':'Get Jupiter quote'}</button>
       <div id="lvQuoteBox" class="hint">${lvQuote ? lvQuote.html : 'Quotes come from Jupiter, the Solana aggregator. Slippage 1.5%.'}</div>
@@ -962,6 +994,8 @@ function renderLiveTicket(t, op){
       <div class="hint" style="margin-top:8px">Live orders never touch the paper accounts or the leaderboard. Market cap, grade and alerts work the same.</div>
     </div>`;
   $('lvRefresh').onclick = async () => { await WAL.refresh(); renderDetail(); };
+  const tpc = $('lvUseTP'), slc = $('lvUseSL'); if (tpc) { tpc.onchange = () => { lvUseTP = tpc.checked; $('lvTPin').disabled = !lvUseTP; }; $('lvTPin').onchange = () => { lvTP = Math.max(1, +$('lvTPin').value || 50); }; }
+  if (slc) { slc.onchange = () => { lvUseSL = slc.checked; $('lvSLin').disabled = !lvUseSL; }; $('lvSLin').onchange = () => { lvSL = Math.min(99, Math.max(1, +$('lvSLin').value || 25)); }; }
   op.querySelectorAll('[data-ls]').forEach(b => b.onclick = () => { lvSide = b.dataset.ls; lvQuote = null; renderDetail(); });
   op.querySelectorAll('[data-lsol]').forEach(b => b.onclick = () => { lvSol = +b.dataset.lsol; lvQuote = null; renderDetail(); });
   op.querySelectorAll('[data-lpct]').forEach(b => b.onclick = () => { lvPct = +b.dataset.lpct; lvQuote = null; renderDetail(); });
@@ -978,7 +1012,7 @@ function renderLiveTicket(t, op){
       const out = +q.outAmount / Math.pow(10, dec), impact = +q.priceImpactPct * 100, minOut = out * (1 - (q.slippageBps||150)/10000);
       const need = lvSide === 'buy' ? lvSol + FEE_RESERVE : FEE_RESERVE;
       const funds = bal >= need ? '' : `<div class="warn" style="margin-top:4px">Wallet has ◎${bal.toFixed(3)}; this order needs about ◎${need.toFixed(3)} including fees. <a href="#" id="lvDep">Deposit</a> or size down. Test mode still works.</div>`;
-      lvQuote = { q, html: `<b>${lvSide==='buy' ? 'You get ≈ '+out.toLocaleString(undefined,{maximumFractionDigits:2})+' '+esc(t.sym) : 'You get ≈ ◎'+out.toFixed(4)+(sp?' ('+fmt(out*sp)+')':'')}</b><div>Min after slippage ${lvSide==='buy' ? minOut.toLocaleString(undefined,{maximumFractionDigits:2}) : '◎'+minOut.toFixed(4)} · price impact ${impact.toFixed(2)}% · route ${q.routePlan?.map(r=>r.swapInfo?.label).filter(Boolean).slice(0,3).join(' → ') || 'direct'}</div>${funds}` };
+      lvOut = out; lvQuote = { q, html: `<b>${lvSide==='buy' ? 'You get ≈ '+out.toLocaleString(undefined,{maximumFractionDigits:2})+' '+esc(t.sym) : 'You get ≈ ◎'+out.toFixed(4)+(sp?' ('+fmt(out*sp)+')':'')}</b><div>Min after slippage ${lvSide==='buy' ? minOut.toLocaleString(undefined,{maximumFractionDigits:2}) : '◎'+minOut.toFixed(4)} · price impact ${impact.toFixed(2)}% · route ${q.routePlan?.map(r=>r.swapInfo?.label).filter(Boolean).slice(0,3).join(' → ') || 'direct'}</div>${funds}` };
     } catch (e) { lvQuote = null; toast('Quote failed: ' + (e.message || e)); }
     lvBusy = false; renderDetail(); const d = $('lvDep'); if (d) d.onclick = ev => { ev.preventDefault(); openWalletDeposit(); };
   };
@@ -992,10 +1026,21 @@ function renderLiveTicket(t, op){
       if (st()) st().textContent = send ? 'Phantom is asking you to approve…' : 'Phantom is asking you to sign (test mode, nothing is sent)…';
       const r = await LIVE.signWithPhantom(tx, { send, backendRpc: (m, p) => backend.rpc(m, p) });
       lvBusy = false; lvQuote = null; renderDetail();
-      if (r.signature) { toast('Sent · ' + r.signature.slice(0, 8) + '…'); lvStatusHtml = `Sent. <a href="${LIVE.explorer(r.signature)}" target="_blank" rel="noopener">View on Solscan</a>. The wallet card updates in a moment.`; setTimeout(() => WAL.refresh(), 8000); setTimeout(() => WAL.refresh(), 25000); }
-      else { toast('Signed in test mode — not sent'); lvStatusHtml = esc('Phantom signed the real transaction. It was not broadcast, so nothing moved. Tick "Send for real" to trade.'); }
-      $('lvStatus').innerHTML = lvStatusHtml;
-      fireAlert?.('live', t, (send ? 'Live ' : 'Test ') + lvSide + ' ' + t.sym + (lvSide==='buy' ? ' ◎' + lvSol : ' ' + lvPct + '%'));
+      if (r.signature) {
+        const link = `<a href="${LIVE.explorer(r.signature)}" target="_blank" rel="noopener">${esc(r.signature.slice(0, 8))}…</a>`;
+        toast('Sent · ' + r.signature.slice(0, 8) + '… waiting for confirmation'); lvStatusHtml = `Sent ${link}. Waiting for the network to confirm…`; $('lvStatus').innerHTML = lvStatusHtml;
+        const c = await LIVE.confirm(r.signature, (m, p) => backend.rpc(m, p));
+        if (c.ok) { lvStatusHtml = `Confirmed (${esc(c.status)}) ${link}. The wallet card updates in a moment.`; toast('Confirmed on-chain'); fireAlert?.('live', t, 'Live ' + lvSide + ' ' + t.sym + (lvSide==='buy' ? ' ◎' + lvSol : ' ' + lvPct + '%') + ' confirmed');
+          const spx = WAL.solPrice() || solUsd || 0;
+          if (lvSide === 'buy' && lvOut > 0) { const cost = lvSol * spx, entry = cost / lvOut; const ex = liveFor(t.addr);
+            if (ex) { ex.cost += cost; ex.qty += lvOut; ex.entry = ex.cost / ex.qty; ex.hit = null; } else livePos.push({ addr: t.addr, sym: t.sym, entry, qty: lvOut, cost, solIn: lvSol, opened: Date.now(), sig: r.signature, tp: null, sl: null, hit: null });
+            const p = liveFor(t.addr); if (lvUseTP) p.tp = p.entry * (1 + lvTP/100); if (lvUseSL) p.sl = p.entry * (1 - lvSL/100); saveLive(); }
+          else if (lvSide === 'sell') { const p = liveFor(t.addr); if (p) { if (lvPct >= 100) livePos = livePos.filter(x => x !== p); else { p.qty *= (1 - lvPct/100); p.cost *= (1 - lvPct/100); } saveLive(); } }
+          applyDrawings(true); renderPositions(); }
+        else { lvStatusHtml = `Sent ${link} but ${c.status === 'failed' ? 'it FAILED on-chain: ' + esc(c.detail) + ' — nothing moved except the fee' : 'not confirmed: ' + esc(c.detail) + ' — check Solscan; if it is not there, nothing moved. Approve in Phantom within a minute or the transaction expires.'}`; toast('Order ' + c.status); }
+        $('lvStatus').innerHTML = lvStatusHtml; WAL.refresh(); setTimeout(() => WAL.refresh(), 15000);
+      }
+      else { toast('Signed in test mode — not sent'); lvStatusHtml = esc('Phantom signed the real transaction. It was not broadcast, so nothing moved. Tick "Send for real" to trade.'); $('lvStatus').innerHTML = lvStatusHtml; fireAlert?.('live', t, 'Test ' + lvSide + ' ' + t.sym + (lvSide==='buy' ? ' ◎' + lvSol : ' ' + lvPct + '%') + ' (not sent)'); }
     } catch (e) { lvBusy = false; lvStatusHtml = esc(e.message || String(e)); renderDetail(); toast('Phantom: ' + (e.message || e)); }
   };
 }
@@ -1003,8 +1048,10 @@ let bottomTab = 'positions';
 function renderPositions(){
   const el = $('bottomPanel'); if (!el) return; el.scrollTop = el.scrollTop;
   if (liveMode && bottomTab === 'positions') {
-    const hs = WAL.list();
-    el.innerHTML = hs.length ? `<table class="btbl"><thead><tr><th>Token</th><th class="num">Amount</th><th class="num">Price</th><th class="num">Value</th><th>Grade</th><th></th></tr></thead><tbody>${hs.map((h,i)=>`<tr class="pos"><td class="sym">${esc(h.sym)}</td><td class="num">${h.amount.toLocaleString(undefined,{maximumFractionDigits:2})}</td><td class="num">${h.price?fmtP(h.price):'—'}</td><td class="num">${h.price?fmt(h.value):'—'}</td><td>${h.g?gBadge(h.g):''}</td><td>${h.token?`<button class="mini" data-lsell="${i}">Sell</button>`:''}</td></tr>`).join('')}</tbody></table><div class="hint" style="padding:6px 10px">Real holdings in Phantom, read from the chain. Sell opens the live ticket.</div>` : '<div class="empty">No tokens in this wallet yet. Buy one from the ticket, or deposit SOL first (+ Deposit).</div>';
+    // holdings from the chain, plus any live position the app remembers that the chain read missed (token list unavailable)
+    const hs = [...WAL.list()]; for (const lp of livePos) if (!hs.some(h => h.mint === lp.addr)) { const t = tokens.find(x => x.addr === lp.addr); hs.push({ mint: lp.addr, sym: lp.sym, name: 'from app memory · wallet list unavailable', amount: lp.qty, price: t?.price || 0, value: (t?.price || 0) * lp.qty, g: t?.grade?.g || null, token: t || null }); }
+    const pnlCell = h => { const p = liveFor(h.mint); if (!p) return '<td class="num"><span class="hint">—</span></td><td><span class="hint">—</span></td>'; const r = livePnl(p); return `<td class="num"><b class="${r.usd>=0?'up':'down'}">${pct(r.pct)}</b><div class="hint">entry ${fmtP(p.entry)}</div></td><td class="num hint">${p.tp?'TP '+fmtP(p.tp):''}${p.tp&&p.sl?'<br>':''}${p.sl?'SL '+fmtP(p.sl):''}${!p.tp&&!p.sl?'—':''}</td>`; };
+    el.innerHTML = hs.length ? `<table class="btbl"><thead><tr><th>Token</th><th class="num">Amount</th><th class="num">Price</th><th class="num">Value</th><th class="num">P&L</th><th class="num">Exits</th><th>Grade</th><th></th></tr></thead><tbody>${hs.map((h,i)=>`<tr class="pos"><td class="sym">${esc(h.sym)}</td><td class="num">${h.amount.toLocaleString(undefined,{maximumFractionDigits:2})}</td><td class="num">${h.price?fmtP(h.price):'—'}</td><td class="num">${h.price?fmt(h.value):'—'}</td>${pnlCell(h)}<td>${h.g?gBadge(h.g):''}</td><td>${h.token?`<button class="mini" data-lsell="${i}">Sell</button>`:''}</td></tr>`).join('')}</tbody></table><div class="hint" style="padding:6px 10px">Real holdings in Phantom, read from the chain. Sell opens the live ticket.</div>` : '<div class="empty">No tokens in this wallet yet. Buy one from the ticket, or deposit SOL first (+ Deposit).</div>';
     el.querySelectorAll('[data-lsell]').forEach(b => b.onclick = () => { const h = hs[+b.dataset.lsell]; if (!tokens.find(x => x.addr === h.token.addr)) { h.token.grade = grade(h.token); tokens.push(h.token); } selected = tokens.find(x => x.addr === h.token.addr) || h.token; lvSide = 'sell'; lvQuote = null; renderDetail(); document.querySelector('.m-segs [data-seg=chart]')?.click(); });
     return;
   }
@@ -1141,11 +1188,11 @@ async function enterApp(){
       catch (err) { if (isAuthError(err)) { toast('Session expired — sign in again'); return logout(); } await new Promise(r=>setTimeout(r, 800)); }
     }
     ME = ME || session.get()?.user || { email:'(offline)', nickname:'you' };
-    loadPrefs(); loadAccounts();
+    loadPrefs(); loadLive(); loadAccounts();
     if (online) { try { await pullCloud(); } catch (e) { if (isAuthError(e)) return logout(); loadActiveState(); setSync('offline — using this browser\'s copy'); } }
     else { loadActiveState(); setSync('offline — using this browser\'s copy'); }
   } else {
-    loadPrefs(); loadAccounts(); loadActiveState();     // guest: everything lives in this browser
+    loadPrefs(); loadLive(); loadAccounts(); loadActiveState();     // guest: everything lives in this browser
   }
   renderAccountUI(); $('whoami').textContent = guest ? 'guest' : (ME?.nickname || '');
   $('acct').innerHTML = guest ? 'Browsing as guest. Your trades are saved only in this browser. Log out to create an account.' : `Signed in as <b>${esc(ME?.email||'')}</b> (${esc(ME?.nickname||'')})${session.get()?.remember ? ' · staying signed in on this device' : ' · signed in for this browser session only'}. Passwords are stored only as a bcrypt hash.`;
@@ -1156,7 +1203,7 @@ async function enterApp(){
   renderAlerts(); fetchSol(); loadMarket();
   await refresh(); rollWeek(); syncStream(); bindBottomTabs(); show('dash');
   if (!window._ms_timers){ window._ms_timers = 1;
-    setInterval(pollPrices, 2000); setInterval(refresh, 60000); setInterval(fetchSol, 60000); setInterval(render, 15000); setInterval(tick, 250); setInterval(evalAlerts, 5000);
+    setInterval(pollPrices, 2000); setInterval(checkLiveExits, 2000); setInterval(refresh, 60000); setInterval(fetchSol, 60000); setInterval(render, 15000); setInterval(tick, 250); setInterval(evalAlerts, 5000);
     setInterval(() => { if ($('app').style.display==='none') return; equityLog.push([Date.now(), equity()]); if (equityLog.length>720) equityLog.shift(); rollWeek(); saveLocal(); if ($('v-portfolio').classList.contains('on')) drawEquity(); }, 5000);
     setInterval(syncLeaderboard, 60000); setInterval(pollCloud, 30000); loadGlobalNews(); setInterval(loadGlobalNews, 120000); loadMarket(); setInterval(()=>{ if($('v-dash')?.classList.contains('on')) loadMarket(); }, 300000);
     setInterval(() => { if ($('v-comp').classList.contains('on')) renderComp(); }, 10000);

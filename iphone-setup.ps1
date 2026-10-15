@@ -74,7 +74,7 @@ if ($Anywhere -and -not $hosted) {
 }
 
 Step 'Pointing the phone app at the website'
-$code = Get-Content $shell -Raw
+$code = Get-Content $shell -Raw -Encoding UTF8
 $code = [regex]::Replace($code, "const APP_URL = '[^']*';", "const APP_URL = '$webUrl/?m=1';")
 Set-Content -Path (Join-Path $expo 'App.js') -Value $code -Encoding UTF8
 Write-Host "App.js -> $webUrl/?m=1"

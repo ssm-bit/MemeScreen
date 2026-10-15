@@ -58,6 +58,21 @@ export async function broadcast(signedB58, backendRpc){
   if (backendRpc) { try { return await backendRpc('sendTransaction', [b64, { encoding:'base64', skipPreflight:false, maxRetries:3 }]); } catch (e) { fails.push('backend: ' + e.message); } }
   throw new Error('Signed, but could not broadcast: ' + fails.join(' · '));
 }
+// after sendTransaction: wait for the network to confirm (or reject) it, so "Sent" means it really landed
+export async function confirm(sig, backendRpc, { timeoutMs = 60000 } = {}){
+  const t0 = Date.now(); let lastErr = '';
+  const ask = async () => {
+    const body = JSON.stringify({ jsonrpc:'2.0', id:1, method:'getSignatureStatuses', params:[[sig], { searchTransactionHistory: true }] });
+    for (const url of RPC_LIST()) { try { const r = await fetch(url, { method:'POST', headers:{ 'content-type':'application/json' }, body }); const j = await r.json(); if (j.result) return j.result.value?.[0] || null; } catch (e) { lastErr = e.message; } }
+    if (backendRpc) { try { const v = await backendRpc('getSignatureStatuses', [[sig], { searchTransactionHistory: true }]); return v?.value?.[0] || null; } catch (e) { lastErr = e.message; } }
+    throw new Error(lastErr || 'no RPC');
+  };
+  while (Date.now() - t0 < timeoutMs) {
+    try { const st = await ask(); if (st) { if (st.err) return { ok: false, status: 'failed', detail: JSON.stringify(st.err) }; if (st.confirmationStatus === 'confirmed' || st.confirmationStatus === 'finalized') return { ok: true, status: st.confirmationStatus }; } } catch {}
+    await new Promise(r => setTimeout(r, 2500));
+  }
+  return { ok: false, status: 'unknown', detail: 'not confirmed within ' + Math.round(timeoutMs/1000) + 's (it may have expired before it reached the network)' };
+}
 function toB58(bytes){ const d = [0]; for (const b of bytes) { let c = b; for (let i = 0; i < d.length; i++) { c += d[i] << 8; d[i] = c % 58; c = (c / 58) | 0; } while (c) { d.push(c % 58); c = (c / 58) | 0; } } let s = ''; for (const b of bytes) { if (b) break; s += '1'; } for (let i = d.length - 1; i >= 0; i--) s += B58[d[i]]; return s; }
 
 // returns { signature } when sent, { signed: true } in test mode
