@@ -71,7 +71,8 @@ html.mobile .chartrow{flex-direction:column}
 html.mobile .drawrail{flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid var(--border);padding:4px 6px;gap:4px}
 html.mobile .drawrail .drawbtn{flex:none;min-width:38px}
 html.mobile .t-center #chartwrap,html.mobile #kc{height:330px!important}
-html.mobile #kc{touch-action:pan-y}
+html.mobile #kc{touch-action:none}   /* the chart owns every gesture: one finger pans, two fingers zoom, like the TradingView app */
+html.mobile .t-center.chart-full #kc{height:100%!important}
 html.mobile .stats{grid-template-columns:repeat(3,1fr);gap:10px}
 html.mobile .t-order{background:transparent;padding-top:0}
 html.mobile .t-order .ticket{padding:14px}

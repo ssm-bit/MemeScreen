@@ -58,6 +58,8 @@ Every user gets isolated data: any number of **paper-trading accounts** (each wi
 
 ## Live prices
 
+Faster feed: get a free API key at helius.dev and set `rpcUrl` / `wsUrl` in `src/config.js` (`https://mainnet.helius-rpc.com/?api-key=KEY`, `wss://mainnet.helius-rpc.com/?api-key=KEY`). The chart then ticks on every swap through a reliable WebSocket and polls at 1 s instead of 1.5 s; wallet reads use it too. Optional `jupiterKey` (portal.jup.ag, free) raises the quote rate limit for live orders.
+
 The selected token's price comes from its pool on Solana (`src/feed.js`): pump.fun bonding-curve reserves, PumpSwap pool token accounts or Raydium AMM v4 vaults, read through the public RPC with `accountSubscribe` (push) and a 1.5 s poll as fallback. No key. Every other token uses DexScreener every 2 s. Closed candles come from GeckoTerminal and are re-fetched every 30 s. PumpPortal's trade stream is metered now, so it only contributes whale prints if it delivers anything.
 
 ## Charting

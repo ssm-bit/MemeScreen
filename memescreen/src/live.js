@@ -69,7 +69,7 @@ export async function signWithPhantom(txB64, { send }){
 const decCache = { [SOL]: 9 };
 export async function decimals(mint){
   if (decCache[mint] != null) return decCache[mint];
-  for (const url of ['https://api.mainnet-beta.solana.com', 'https://solana-rpc.publicnode.com']) {
+  for (const url of [CONFIG.rpcUrl, 'https://api.mainnet-beta.solana.com', 'https://solana-rpc.publicnode.com'].filter(Boolean)) {
     try { const r = await fetch(url, { method:'POST', headers:{ 'content-type':'application/json' }, body: JSON.stringify({ jsonrpc:'2.0', id:1, method:'getTokenSupply', params:[mint] }) }); const j = await r.json(); const d = j.result?.value?.decimals; if (d != null) { decCache[mint] = d; return d; } } catch {}
   }
   return 6;

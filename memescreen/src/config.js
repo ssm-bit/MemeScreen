@@ -17,6 +17,11 @@ export default {
     jsKey: 'd5ZabG61ROOuG6wxyhZT0krGp3faDiNOyTdovytV',                           // JavaScript key  (NOT the master key — never put the master key in a web app)
     serverUrl: 'https://parseapi.back4app.com',
   },
+  // Solana RPC for the live price feed, wallet reads and token decimals. The public endpoint works but is
+  // rate-limited and its WebSocket is often refused. A free Helius key (helius.dev → create API key) makes the
+  // chart tick on every swap: put https://mainnet.helius-rpc.com/?api-key=KEY here and wss://mainnet.helius-rpc.com/?api-key=KEY below.
+  rpcUrl: '',
+  wsUrl: '',
   jupiterKey: '',                        // optional: a free key from portal.jup.ag raises the Jupiter quote rate limit for live orders
   expressUrl: '',                        // '' = same machine that served the page, port 4000
 };

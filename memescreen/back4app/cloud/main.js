@@ -38,10 +38,14 @@ Parse.Cloud.define('sendPush', async req => {
 Parse.Cloud.define('pushToUser', async req => {
   const { userId, title, message, data } = req.params || {};
   if (!userId || !title) throw 'userId and title are required';
+  // a signed-in user may only push to their own phones; jobs and the dashboard (master key) may push to anyone
+  if (!req.master && (!req.user || req.user.id !== userId)) throw 'You can only send to your own devices';
   const q = new Parse.Query('PushDevice'); q.equalTo('owner', Parse.User.createWithoutData(userId)); q.limit(20);
   const devices = await q.find({ useMasterKey: true });
   if (!devices.length) return { sent: 0 };
   const res = await expoSend(devices.map(d => ({ to: d.get('token'), title, body: message || '', data: data || {}, sound: 'default' })));
+  // every send is written to PushLog so the dashboard shows what went out and what Expo answered
+  try { const log = new Parse.Object('PushLog'); log.set({ owner: Parse.User.createWithoutData(userId), title, message: message || '', devices: devices.length, expo: JSON.stringify(res).slice(0, 2000) }); const acl = new Parse.ACL(); acl.setPublicReadAccess(false); acl.setReadAccess(userId, true); log.setACL(acl); await log.save(null, { useMasterKey: true }); } catch (e) {}
   return { sent: devices.length, res };
 });
 // a user may only ever read and write their own push devices
@@ -49,4 +53,16 @@ Parse.Cloud.beforeSave('PushDevice', req => {
   if (!req.user) throw 'Sign in first';
   req.object.set('owner', req.user);
   const acl = new Parse.ACL(req.user); req.object.setACL(acl);
+});
+
+// ---------- Solana RPC relay ----------
+// Public RPC endpoints refuse "indexed" reads (getTokenAccountsByOwner) when the request comes from a browser.
+// The app sends those through here; the server-side request is allowed. Read-only methods only.
+const RPC_OK = new Set(['getTokenAccountsByOwner', 'getBalance', 'getMultipleAccounts', 'getAccountInfo', 'getTokenSupply', 'getTokenAccountBalance']);
+Parse.Cloud.define('rpc', async req => {
+  const { method, params } = req.params || {};
+  if (!RPC_OK.has(method)) throw 'method not allowed';
+  const url = process.env.SOLANA_RPC || 'https://api.mainnet-beta.solana.com';
+  const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params: params || [] }) });
+  return r.json();
 });

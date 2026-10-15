@@ -6,7 +6,9 @@
 // Nothing here signs a transaction. Orders in MemeScreen stay paper.
 // ============================================================
 const $ = id => document.getElementById(id);
-const RPCS = ['https://api.mainnet-beta.solana.com', 'https://solana-rpc.publicnode.com', 'https://rpc.ankr.com/solana'];
+import CONFIG from './config.js';
+const RPCS = [CONFIG.rpcUrl, 'https://solana-rpc.publicnode.com', 'https://api.mainnet-beta.solana.com'].filter(Boolean);
+const INDEXED = new Set(['getTokenAccountsByOwner', 'getProgramAccounts']);   // public RPCs refuse these from a browser; the backend relays them
 const SOL = 'So11111111111111111111111111111111111111112';
 const TOKEN = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', TOKEN22 = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
 
@@ -29,6 +31,7 @@ export const phantomOpenUrl = () => 'https://phantom.app/ul/browse/' + encodeURI
 
 async function rpc(method, params){
   let last;
+  if (INDEXED.has(method) && H.backendRpc) { try { return await H.backendRpc(method, params); } catch (e) { last = e; } }
   for (const url of RPCS) {
     try {
       const r = await fetch(url, { method:'POST', headers:{ 'content-type':'application/json' }, body: JSON.stringify({ jsonrpc:'2.0', id:1, method, params }) });
@@ -58,11 +61,16 @@ export async function disconnect(tellPhantom = true){
 }
 function schedule(){ clearTimeout(timer); timer = setTimeout(() => { refresh(); }, 60000); }
 
-// prefs: the address is remembered on the account so the wallet card shows up on every device; Phantom itself still has to approve each browser once
-export function prefs(){ return pub ? { pub } : null; }
-// a wallet address remembered on the account: show its holdings (read-only needs no approval), and on desktop
-// quietly re-attach the extension if the site is already trusted. Never opens the Phantom app by itself.
-export async function applyPrefs(w){ if (userDisconnected || !w?.pub || pub) return; pub = w.pub; if (provider() && !isMobile()) { try { await connect({ silent: true }); return; } catch {} } schedule(); refresh(); }
+// Nothing about the wallet is saved anywhere: the connection lives in memory for this session only.
+// Close the app, reload, or stay in the background for 10 minutes and it is gone; next time you tap Connect again.
+export function prefs(){ return null; }
+export async function applyPrefs(){ /* old profiles may still carry a wallet address: ignored on purpose */ }
+let idleT = null;
+document.addEventListener('visibilitychange', () => {
+  clearTimeout(idleT);
+  if (document.hidden && pub) idleT = setTimeout(() => { if (pub) { disconnect(true); H.toast?.('Phantom disconnected after 10 minutes in the background'); } }, 10 * 60 * 1000);
+});
+window.addEventListener('pagehide', () => { if (pub) { try { provider()?.disconnect(); } catch {} } });
 export async function setExternalDisconnect(){ userDisconnected = true; }
 
 export async function refresh(){
@@ -129,7 +137,7 @@ function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;',
 
 // ---------- broker window: Phantom card states ----------
 export function brokerCard(){
-  if (pub) return { state:'connected', label:'Connected · ' + short(pub) };
+  if (pub) return { state:'connected', label:'Connected · ' + short(pub) + ' · tap to disconnect' };
   if (inShell()) return { state:'shell', label:'Connect' };
   if (provider()) return { state:'ready', label:'Connect' };
   if (isMobile()) return { state:'open', label:'Open in Phantom' };
@@ -137,7 +145,7 @@ export function brokerCard(){
 }
 export async function brokerClick(){
   const c = brokerCard();
-  if (c.state === 'connected') return 'Phantom is connected. Holdings are on the Portfolio page. Orders stay paper.';
+  if (c.state === 'connected') { await disconnect(true); return 'Phantom disconnected. Paper trading is active.'; }
   if (c.state === 'shell') { try { window.ReactNativeWebView.postMessage(JSON.stringify({ source:'memescreen', type:'ms-wallet-connect' })); } catch {} return 'Phantom is opening. Approve the connection there and you will come straight back here.'; }
   if (c.state === 'open') { H.openExternal?.(phantomOpenUrl()); return 'Opening this page inside the Phantom app. Tap Connect there.'; }
   if (c.state === 'install') { window.open('https://phantom.app/download', '_blank', 'noopener'); return 'Install the Phantom extension, then come back and press Connect.'; }

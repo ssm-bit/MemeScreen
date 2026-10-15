@@ -82,6 +82,9 @@ function expressBackend(cfg){
     async leaveCompetition(code){ await call('/competitions/' + encodeURIComponent(code) + '/leave', { method:'POST' }); },
     async deleteMe(){ await call('/me', { method:'DELETE' }); session.clear(); },
     async savePushDevice(d){ await call('/push-device', { method:'POST', body:d }); },
+    async listPushDevices(){ return (await call('/push-devices')).devices || []; },
+    async rpc(method, params){ const d = await call('/rpc', { method:'POST', authed:false, body:{ method, params } }); if (d.error) throw new Error(d.error.message || 'rpc error'); return d.result; },
+    async pushTest(title, message){ return call('/push-test', { method:'POST', body:{ title, message } }); },
   };
 }
 
@@ -162,6 +165,11 @@ function back4appBackend(cfg){
       return { id:c.objectId, name:c.name, code:c.code, by:c.ownerNick, members:[...new Set([...(c.members||[]), me().nickname])], mine:true }; },
     async leaveCompetition(code){ const f = await call('/classes/Competition', { params:{ where:{ code }, limit:'1' } }); const c = f.results[0]; if (!c) return; await call('/classes/Competition/' + c.objectId, { method:'PUT', body:{ members:{ __op:'Remove', objects:[me().nickname] }, memberIds:{ __op:'Remove', objects:[me().id] } } }); },
     // Expo push token for this phone (class PushDevice: owner, token, platform). One row per token.
+    // plain Solana RPC relayed by the cloud function (browsers get 403 from the public RPC for indexed calls like getTokenAccountsByOwner)
+    async rpc(method, params){ const d = await call('/functions/rpc', { method:'POST', authed:false, body:{ method, params } }); if (d.result?.error) throw new Error(d.result.error.message || 'rpc error'); return d.result?.result; },
+    async listPushDevices(){ const r = await call('/classes/PushDevice', { params:{ where:{ owner: ptr() }, limit:20, keys:'token,platform,updatedAt' } }); return r.results || []; },
+    // real push through Back4App → Expo, to every phone of this user (cloud function pushToUser)
+    async pushTest(title, message){ return call('/functions/pushToUser', { method:'POST', body:{ userId: me().id, title, message, data:{ test:true } } }); },
     async savePushDevice({ token, platform }){
       const found = await call('/classes/PushDevice', { params:{ where:{ token }, limit:1 } });
       const body = { owner: ptr(), token, platform: platform || 'ios', ACL: ownerAcl() };

@@ -35,7 +35,7 @@ const signedIn = () => !!TOKEN && !guest;
 // ---------- constants (restored) ----------
 const START = 10000, PLATFORM = 0.01, LP = 0.003, NET = 0.10, GRADES = ['F','D','C','B','A'];
 let liveMode = false;   // true = the connected Phantom wallet is the active account (see setLiveMode)
-const BUILD = '2026-10-01f';   // shown in Settings and under the login form, so a phone on an old build is easy to spot
+const BUILD = '2026-10-15b';   // shown in Settings and under the login form, so a phone on an old build is easy to spot
 const ICON = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="20" fill="#0A0D12"/><circle cx="50" cy="50" r="36" fill="none" stroke="#22E4A0" stroke-width="6"/><path d="M57 31L70 26" fill="none" stroke="#22E4A0" stroke-width="5" stroke-linecap="round"/><rect x="31" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><rect x="59" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><path d="M33 66Q50 68 67 58" fill="none" stroke="#22E4A0" stroke-width="5.5" stroke-linecap="round"/></svg>');
 
 // ---------- global news feed (ticker + alerts) ----------
@@ -318,7 +318,9 @@ async function sysNotify(title, body, tag, addr){
 function notifState(){ const el = $('notifstate');
   if (WAL.inPhantomBrowser()) { el.innerHTML = '<span class="warn">This is Phantom\'s built-in browser, which has no notifications.</span> Open MemeScreen in Expo Go for push alerts.'; return; }
   if (window.ReactNativeWebView) { const sh = window.__shell; let tok = null; try { tok = localStorage.getItem('ms_push_' + userKey()); } catch {}
-    el.innerHTML = (sh ? `iPhone app shell build ${esc(sh.version)}. ` : '<span class="warn">iPhone app shell is an old build (run Put-MemeScreen-on-iPhone.bat again).</span> ') + (tok ? `<span class="ok">Push notifications are on for this phone.</span> Token ${esc(tok.slice(0, 22))}…` : 'Push is off on this phone. Press Enable to get the iOS permission prompt and register this phone.'); return; }
+    el.innerHTML = (sh ? `iPhone app shell build ${esc(sh.version)}. ` : '<span class="warn">iPhone app shell is an old build (run Put-MemeScreen-on-iPhone.bat again).</span> ') + (tok ? `<span class="ok">Push notifications are on for this phone.</span> Token ${esc(tok.slice(0, 22))}… <span id="pushCloud">checking Back4App…</span>` : 'Push is off on this phone. Press Enable to get the iOS permission prompt and register this phone.');
+    if (tok && signedIn()) backend.listPushDevices().then(list => { const pc = $('pushCloud'); if (!pc) return; const mine = list.some(d => d.token === tok); pc.innerHTML = mine ? `· <span class="ok">registered in ${esc(backend.label.split(' ·')[0])} (${list.length} device${list.length===1?'':'s'} on this account)</span>. "Send a test" goes through the cloud function.` : '· <span class="warn">not found in Back4App — press Enable again</span>'; }).catch(() => { const pc = $('pushCloud'); if (pc) pc.textContent = '· could not read Back4App'; });
+    return; }
   if (!('Notification' in window)) { el.innerHTML = 'This browser does not support notifications. In-app alerts still work.'; return; } const p = Notification.permission; el.innerHTML = p === 'granted' ? '<span class="ok">Browser notifications are on.</span> Alerts show here and as system notifications, even when this tab is in the background.' : p === 'denied' ? '<span class="warn">Blocked.</span> Allow notifications for this site in your browser settings.' : 'Off. Enable to get system notifications when a watched memecoin moves.'; }
 function fireAlert(kind, t, msg){
   const key = kind + ':' + t.addr; if (firedAt[key] && Date.now() - firedAt[key] < 300000) return; firedAt[key] = Date.now();
@@ -370,7 +372,18 @@ function askNotifications(){
   $('notifYes').onclick = () => { done('yes'); enableNotifications(); };
   $('notifNo').onclick = () => done('no');
 }
-$('testn').onclick = () => { const t = selected || tokens[0]; if (!t) return; delete firedAt['test:'+t.addr]; fireAlert('test', t, `Test: ${t.sym} is at ${fmtP(t.price)} right now`); };
+$('testn').onclick = async () => {
+  const t = selected || tokens[0]; if (!t) return;
+  let tok = null; try { tok = localStorage.getItem('ms_push_' + userKey()); } catch {}
+  if (window.ReactNativeWebView && tok && signedIn()) {
+    // the real thing: Back4App cloud function → Expo push → this phone. Works with the app closed too.
+    toast('Sending through Back4App…');
+    try { const r = await backend.pushTest('MemeScreen test', `${t.sym} is at ${fmtP(t.price)} right now`); const n = r?.result?.sent ?? r?.sent; const st = r?.result?.res?.data?.[0]?.status || r?.res?.data?.[0]?.status; toast(n ? `Back4App sent to ${n} device${n===1?'':'s'}${st ? ' · Expo: ' + st : ''}. Lock the phone and watch for it.` : 'Back4App found no registered device for this account'); }
+    catch (e) { toast('Back4App push failed: ' + (e.message || e)); }
+    return;
+  }
+  delete firedAt['test:'+t.addr]; fireAlert('test', t, `Test: ${t.sym} is at ${fmtP(t.price)} right now`);
+};
 
 // ---------- server sync ----------
 function avgGradeIdxFromTrades(){ const ts = trades.filter(t => t.open); return ts.length ? ts.reduce((s,t)=>s+GRADES.indexOf(t.grade),0)/ts.length : 2; }
@@ -524,11 +537,11 @@ async function loadChart(t){
   if(!hasKC()) return;
   const key = t.addr + tf; const src = $('csrc');
   if (chartLoading[key]) return;
-  if (!chartCache[key] || Date.now() - chartCache[key].at > (chartCache[key].mode === 'live' ? 30000 : 60000)) {
+  if (!chartCache[key] || Date.now() - chartCache[key].at > (chartCache[key].mode === 'live' ? 60000 : 45000)) {
     chartLoading[key] = true; if (!chartCache[key] && src) src.textContent = 'loading ' + tf + ' candles…';
     try {
     if (!live || String(t.pair).startsWith('sim')) chartCache[key] = { at: Date.now(), candles: chartCache[key]?.candles || simCandles(t), mode: 'sim' };
-    else { try { const [unit, agg] = TF[tf]; const r = await fetch(`https://api.geckoterminal.com/api/v2/networks/solana/pools/${t.pair}/ohlcv/${unit}?aggregate=${agg}&limit=300&currency=usd`, { headers: { accept: 'application/json' } }); const j = await r.json(); const list = (j.data?.attributes?.ohlcv_list||[]).map(a => ({ t:a[0], o:+a[1], h:+a[2], l:+a[3], c:+a[4], v:+a[5] })).reverse(); if (!list.length) throw 0; const old = chartCache[key], prev = old?.candles; let gap = false; if (prev?.length) { const last = prev[prev.length-1]; const sl = list[list.length-1]; gap = sl.t - last.t > STEP[tf]; if (last.t > sl.t) list.push(last); else if (last.t === sl.t) { sl.h = Math.max(sl.h, last.h); sl.l = Math.min(sl.l, last.l); sl.c = last.c; } } if (old && old.mode === 'live' && !gap) { old.candles = list; old.at = Date.now(); } else chartCache[key] = { at: Date.now(), candles: list, mode: 'live' }; } catch { chartCache[key] = { at: Date.now(), candles: (chartCache[key]?.candles)||simCandles(t), mode: 'sim' }; } }
+    else { try { const [unit, agg] = TF[tf]; const r = await fetch(`https://api.geckoterminal.com/api/v2/networks/solana/pools/${t.pair}/ohlcv/${unit}?aggregate=${agg}&limit=300&currency=usd`, { headers: { accept: 'application/json' } }); const j = await r.json(); const list = (j.data?.attributes?.ohlcv_list||[]).map(a => ({ t:a[0], o:+a[1], h:+a[2], l:+a[3], c:+a[4], v:+a[5] })).reverse(); if (!list.length) throw 0; const old = chartCache[key], prev = old?.candles; let gap = false; if (prev?.length) { const last = prev[prev.length-1]; const sl = list[list.length-1]; gap = sl.t - last.t > STEP[tf]; if (last.t > sl.t) list.push(last); else if (last.t === sl.t) { sl.h = Math.max(sl.h, last.h); sl.l = Math.min(sl.l, last.l); sl.c = last.c; } } if (old && old.mode === 'live' && !gap) { old.candles = list; old.at = Date.now(); } else chartCache[key] = { at: Date.now(), candles: list, mode: 'live' }; } catch { const old = chartCache[key]; if (old && old.mode === 'live') { old.at = Date.now(); /* GeckoTerminal rate limit (30/min): keep the real candles, the on-chain feed keeps the last one moving */ } else chartCache[key] = { at: Date.now(), candles: (old?.candles)||simCandles(t), mode: 'sim' }; } }
     } finally { chartLoading[key] = false; }
   }
   const cc = chartCache[key]; if (selected?.addr !== t.addr) return;
@@ -565,8 +578,10 @@ function applyIndicators(){
 }
 // ---------- drawings (native overlays + TP/SL/order lines) ----------
 SCR.init({ tokens: () => tokens, select: t => { selected = t; show('trade'); render(); document.querySelector('.m-segs [data-seg=chart]')?.click(); }, toast, fireAlert, saveScreens: () => save('prefs'), signedIn });
-WAL.init({ grade, fetchPairs, gBadge, toast, openExternal, fmt, fmtP, fmtK, solUsd: () => solUsd, savePrefs: () => save('prefs'), onChange: () => { renderAccountUI(); if (liveMode && !WAL.connected()) setLiveMode(false); if (liveMode) { updateLive(); if (bottomTab==='positions') renderPositions(); } }, select: t => { const have = tokens.find(x => x.addr === t.addr); if (!have) { t.grade = grade(t); tokens.push(t); } selected = have || t; show('trade'); render(); document.querySelector('.m-segs [data-seg=chart]')?.click(); } });
+WAL.init({ grade, fetchPairs, gBadge, toast, openExternal, fmt, fmtP, fmtK, solUsd: () => solUsd, savePrefs: () => save('prefs'), backendRpc: (m, p) => backend.rpc(m, p), onChange: () => { renderAccountUI(); if (liveMode && !WAL.connected()) setLiveMode(false); if (liveMode) { updateLive(); if (bottomTab==='positions') renderPositions(); } }, select: t => { const have = tokens.find(x => x.addr === t.addr); if (!have) { t.grade = grade(t); tokens.push(t); } selected = have || t; show('trade'); render(); document.querySelector('.m-segs [data-seg=chart]')?.click(); } });
 FEED.init({ sol: () => solUsd, price: (t, px) => { t.target = px; t.feedAt = Date.now(); } });   // tick() eases price → target, which also refreshes the header, list and candle
+// the inline [data-legal] handler in index.html only switches the view; the buttons on that page are wired here
+document.addEventListener('click', e => { if (e.target.closest && e.target.closest('[data-legal]')) setTimeout(renderLegal, 0); });
 function renderLegal(){ const el=$('legalBody'); if(!el || el.dataset.done) return; el.dataset.done='1';
   const del=$('deleteAcct'); if(del) del.onclick=async()=>{ if(!signedIn()) return toast('Guest data lives only in this browser. Clear the site data to remove it.'); if(!confirm('Delete your MemeScreen account and every paper account, trade and setting tied to it? This cannot be undone.')) return; const typed=prompt('Type DELETE to confirm'); if(typed!=='DELETE') return; try { await backend.deleteMe(); try { Object.keys(localStorage).filter(k=>k.startsWith('ms_')).forEach(k=>localStorage.removeItem(k)); } catch {} toast('Account deleted'); setTimeout(()=>location.reload(), 800); } catch(e){ toast(e.message||'Could not delete'); } }; }
 DT.init({ chart: () => KC, token: () => selected, supply: () => tokenSupply(selected), barMs: () => STEP[tf]*1000, fmtP, toast });

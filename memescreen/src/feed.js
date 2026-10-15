@@ -9,8 +9,12 @@
 //   anything else           → DexScreener polling (unchanged)
 // Push first (accountSubscribe over the RPC WebSocket), polling every 1.5 s as the fallback. No key needed.
 // ============================================================
-const HTTP = ['https://api.mainnet-beta.solana.com', 'https://solana-rpc.publicnode.com', 'https://rpc.ankr.com/solana'];
-const WSS  = ['wss://api.mainnet-beta.solana.com', 'wss://solana-rpc.publicnode.com'];
+import CONFIG from './config.js';
+// Order matters: the Solana Labs endpoint answers browsers with 403, publicnode allows plain (non-indexed) reads and
+// WebSocket subscriptions from a browser. A Helius key in config.js goes first when present.
+const HTTP = [CONFIG.rpcUrl, 'https://solana-rpc.publicnode.com', 'https://api.mainnet-beta.solana.com'].filter(Boolean);
+const WSS  = [CONFIG.wsUrl, 'wss://solana-rpc.publicnode.com', 'wss://api.mainnet-beta.solana.com'].filter(Boolean);
+const POLL_MS = CONFIG.rpcUrl ? 1000 : 1500;
 const SOL  = 'So11111111111111111111111111111111111111112';
 const USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
@@ -34,23 +38,39 @@ const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 function toB58(bytes){ const d = [0]; for (const b of bytes) { let c = b; for (let i = 0; i < d.length; i++) { c += d[i] << 8; d[i] = c % 58; c = (c / 58) | 0; } while (c) { d.push(c % 58); c = (c / 58) | 0; } } let s = ''; for (const b of bytes) { if (b) break; s += '1'; } for (let i = d.length - 1; i >= 0; i--) s += B58[d[i]]; return s; }
 
 // ---------- working out where the price lives for this token ----------
+// The pool account's owner program says which DEX it is; the vault addresses sit at fixed offsets in the account.
+// Offsets were checked against live pools on 2026-10-15. All reads are plain getAccountInfo / getMultipleAccounts,
+// which public RPCs allow from a browser (getTokenAccountsByOwner is "indexed" and they refuse it).
+const PROG = {
+  pumpfun:  '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P',
+  pumpswap: 'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA',
+  cpmm:     'CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C',
+  ammv4:    '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8',
+};
+const key = (b, o) => toB58(b.slice(o, o + 32));
+const quotePx = {};   // USD price of a non-SOL quote token (ZEC, USDT…), from DexScreener, refreshed every minute
+async function quoteUsd(mint){
+  if (mint === SOL) return solUsd(); if (mint === USDC) return 1;
+  const c = quotePx[mint]; if (c && Date.now() - c.at < 60000) return c.px;
+  try { const r = await (await fetch('https://api.dexscreener.com/tokens/v1/solana/' + mint)).json(); const best = r.filter(q => +q.priceUsd).sort((x, y) => (y.liquidity?.usd||0) - (x.liquidity?.usd||0))[0]; quotePx[mint] = { at: Date.now(), px: +best?.priceUsd || 0 }; } catch { quotePx[mint] = { at: Date.now(), px: c?.px || 0 }; }
+  return quotePx[mint].px;
+}
 async function resolve(t){
-  const quote = t.quote || SOL, qUsd = () => quote === SOL ? solUsd() : quote === USDC ? 1 : 0;
-  // 1) pump.fun bonding curve: pair address is the curve account
-  if (/pumpfun/i.test(t.dex || '')) {
-    const a = await rpc('getAccountInfo', [t.pair, { encoding:'base64' }]); const data = a?.value?.data?.[0]; if (!data) throw new Error('no curve');
-    return { mode:'bonding curve', accounts:[t.pair], enc:'base64', price: vals => { const b = b64(vals[t.pair]); if (b.length < 24) return 0; const vt = u64(b, 8) / 1e6, vs = u64(b, 16) / 1e9; return vt ? (vs / vt) * solUsd() : 0; } };
+  const quote = t.quote || SOL; await quoteUsd(quote); const qUsd = () => quote === SOL ? solUsd() : quote === USDC ? 1 : (quotePx[quote]?.px || 0);
+  if (quote !== SOL && quote !== USDC) { const tq = setInterval(() => { if (cur?.token === t) quoteUsd(quote); else clearInterval(tq); }, 60000); }
+  const a = await rpc('getAccountInfo', [t.pair, { encoding:'base64' }]); const data = a?.value?.data?.[0]; if (!data) throw new Error('pool account not found');
+  const b = b64(data), owner = a.value.owner;
+  // 1) pump.fun bonding curve: virtual reserves live in the curve account itself
+  if (owner === PROG.pumpfun) {
+    return { mode:'bonding curve', accounts:[t.pair], enc:'base64', price: vals => { const c = b64(vals[t.pair]); if (c.length < 24) return 0; const vt = u64(c, 8) / 1e6, vs = u64(c, 16) / 1e9; return vt ? (vs / vt) * solUsd() : 0; } };
   }
-  // 2) vaults owned by the pool itself (PumpSwap and most newer AMMs)
-  const [ba, qa] = await Promise.all([rpc('getTokenAccountsByOwner', [t.pair, { mint: t.addr }, { encoding:'jsonParsed' }]), rpc('getTokenAccountsByOwner', [t.pair, { mint: quote }, { encoding:'jsonParsed' }])]);
-  let bv = ba?.value?.[0]?.pubkey, qv = qa?.value?.[0]?.pubkey;
-  // 3) Raydium AMM v4: vault addresses sit in the pool account (752-byte layout, base vault at 336, quote vault at 368)
-  if (!(bv && qv)) {
-    const a = await rpc('getAccountInfo', [t.pair, { encoding:'base64' }]); const data = a?.value?.data?.[0]; const b = data ? b64(data) : null;
-    if (b && b.length === 752) { const v1 = toB58(b.slice(336, 368)), v2 = toB58(b.slice(368, 400)), m1 = toB58(b.slice(400, 432)); if (m1 === t.addr) { bv = v1; qv = v2; } else { bv = v2; qv = v1; } }
-  }
-  if (!(bv && qv)) throw new Error('pool not supported');
-  return { mode: (ba?.value?.length ? 'PumpSwap vaults' : 'Raydium vaults'), accounts:[bv, qv], enc:'jsonParsed', price: vals => { const g = v => +(v?.parsed?.info?.tokenAmount?.uiAmount || 0); const base = g(vals[bv]), q = g(vals[qv]); return base ? (q / base) * qUsd() : 0; } };
+  let bv, qv, mode;
+  if (owner === PROG.pumpswap && b.length >= 203) { const m0 = key(b, 43); bv = key(b, 139); qv = key(b, 171); if (m0 !== t.addr) [bv, qv] = [qv, bv]; mode = 'PumpSwap vaults'; }
+  else if (owner === PROG.cpmm && b.length >= 232) { const m0 = key(b, 168); bv = key(b, 72); qv = key(b, 104); if (m0 !== t.addr) [bv, qv] = [qv, bv]; mode = 'Raydium CPMM vaults'; }
+  else if (owner === PROG.ammv4 && b.length === 752) { const m0 = key(b, 400); bv = key(b, 336); qv = key(b, 368); if (m0 !== t.addr) [bv, qv] = [qv, bv]; mode = 'Raydium v4 vaults'; }
+  if (!(bv && qv)) throw new Error('pool type not supported');
+  const g = v => +(v?.parsed?.info?.tokenAmount?.uiAmount || 0);
+  return { mode, accounts:[bv, qv], enc:'jsonParsed', price: vals => { const base = g(vals[bv]), q = g(vals[qv]); return base ? (q / base) * qUsd() : 0; } };
 }
 
 // ---------- start / stop ----------
@@ -61,7 +81,7 @@ export async function start(t){
   try { Object.assign(my, await resolve(t)); } catch (e) { if (cur === my) { cur = null; status = 'DexScreener quotes (pool type not supported)'; } return; }
   if (cur !== my) return;
   status = 'on-chain · ' + my.mode + ' · polling';
-  await poll(my); pollT = setInterval(() => poll(my), 1500);
+  await poll(my); pollT = setInterval(() => poll(my), POLL_MS);
   subscribe(my);
 }
 export function stop(){ cur = null; clearInterval(pollT); pollT = null; for (const id of Object.keys(subs)) { try { ws?.send(JSON.stringify({ jsonrpc:'2.0', id:9, method:'accountUnsubscribe', params:[+id] })); } catch {} } subs = {}; status = ''; }
@@ -86,7 +106,7 @@ function subscribe(my){
     ws.onmessage = ev => { let m; try { m = JSON.parse(ev.data); } catch { return; }
       if (m.id && typeof m.result === 'number') { subs[m.result] = my.accounts[m.id - 1]; status = 'on-chain · ' + my.mode + ' · live'; return; }
       if (m.method === 'accountNotification') { const acc = subs[m.params.subscription]; const v = m.params.result?.value; if (!acc || !v) return; my.vals[acc] = my.enc === 'base64' ? v.data[0] : v.data; emit(my); if (pollT) { clearInterval(pollT); pollT = setInterval(() => poll(my), 15000); } } };
-    ws.onclose = () => { wsOK = false; subs = {}; if (cur === my) { status = 'on-chain · ' + my.mode + ' · polling'; if (pollT) { clearInterval(pollT); pollT = setInterval(() => poll(my), 1500); } if (i < WSS.length * 2) setTimeout(open, 3000); } };
+    ws.onclose = () => { wsOK = false; subs = {}; if (cur === my) { status = 'on-chain · ' + my.mode + ' · polling'; if (pollT) { clearInterval(pollT); pollT = setInterval(() => poll(my), POLL_MS); } if (i < WSS.length * 2) setTimeout(open, 3000); } };
     ws.onerror = () => {};
   };
   open();

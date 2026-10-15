@@ -117,12 +117,27 @@ app.post('/api/reset', limitAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
+// ---- Solana RPC relay (read-only; browsers get 403 from the public RPC for indexed calls) ----
+const RPC_OK = new Set(['getTokenAccountsByOwner', 'getBalance', 'getMultipleAccounts', 'getAccountInfo', 'getTokenSupply', 'getTokenAccountBalance']);
+app.post('/api/rpc', async (req, res) => {
+  const { method, params } = req.body || {};
+  if (!RPC_OK.has(method)) return res.status(400).json({ error: 'method not allowed' });
+  try { const r = await fetch(process.env.SOLANA_RPC || 'https://api.mainnet-beta.solana.com', { method:'POST', headers:{ 'content-type':'application/json' }, body: JSON.stringify({ jsonrpc:'2.0', id:1, method, params: params || [] }) }); res.json(await r.json()); }
+  catch (e) { res.status(502).json({ error: e.message }); }
+});
 // ---- Expo push devices ----
 app.post('/api/push-device', auth, async (req, res) => {
   const token = String(req.body?.token || ''), platform = String(req.body?.platform || 'ios').slice(0, 10);
   if (!/^ExponentPushToken\[/.test(token) && !/^ExpoPushToken\[/.test(token)) return res.status(400).json({ error: 'Not an Expo push token' });
   await pool.query('INSERT INTO push_devices (token, user_id, platform) VALUES ($1,$2,$3) ON CONFLICT (token) DO UPDATE SET user_id = EXCLUDED.user_id, platform = EXCLUDED.platform, updated_at = now()', [token, req.user.id, platform]);
   res.json({ ok: true });
+});
+app.get('/api/push-devices', auth, async (req, res) => { const { rows } = await pool.query('SELECT token, platform, updated_at FROM push_devices WHERE user_id = $1', [req.user.id]); res.json({ devices: rows }); });
+app.post('/api/push-test', auth, async (req, res) => {
+  const { rows } = await pool.query('SELECT token FROM push_devices WHERE user_id = $1', [req.user.id]);
+  if (!rows.length) return res.json({ sent: 0 });
+  const r = await fetch('https://exp.host/--/api/v2/push/send', { method:'POST', headers:{ 'content-type':'application/json' }, body: JSON.stringify(rows.map(x => ({ to: x.token, title: String(req.body?.title || 'MemeScreen'), body: String(req.body?.message || ''), data:{ test:true }, sound:'default' }))) });
+  res.json({ sent: rows.length, res: await r.json().catch(() => ({})) });
 });
 // send a push to every phone of a user (used by cron jobs or an admin; needs the server's own secret)
 app.post('/api/push', async (req, res) => {
