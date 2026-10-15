@@ -30,15 +30,20 @@ export const short = a => a ? a.slice(0, 4) + '…' + a.slice(-4) : '';
 export const phantomOpenUrl = () => 'https://phantom.app/ul/browse/' + encodeURIComponent(location.href.split('#')[0]) + '?ref=' + encodeURIComponent(location.origin);
 
 async function rpc(method, params){
-  let last;
-  if (INDEXED.has(method) && H.backendRpc) { try { return await H.backendRpc(method, params); } catch (e) { last = e; } }
+  const fails = [];
+  const relay = async () => { try { return { ok: true, v: await H.backendRpc(method, params) }; } catch (e) { fails.push('backend: ' + (e.message || 'failed')); return { ok: false }; } };
+  // indexed calls go to the backend relay first (public RPCs refuse them from a browser)
+  if (INDEXED.has(method) && H.backendRpc) { const r = await relay(); if (r.ok) return r.v; }
   for (const url of RPCS) {
     try {
       const r = await fetch(url, { method:'POST', headers:{ 'content-type':'application/json' }, body: JSON.stringify({ jsonrpc:'2.0', id:1, method, params }) });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
       const j = await r.json(); if (j.error) throw new Error(j.error.message || 'rpc error'); return j.result;
-    } catch (e) { last = e; }
+    } catch (e) { fails.push(url.replace(/^https?:\/\//, '').split('/')[0] + ': ' + (e.message || 'failed')); }
   }
-  throw last || new Error('No Solana RPC reachable');
+  // every public RPC refused this phone/network: let the backend (Back4App cloud function or Express) do it server-side
+  if (!INDEXED.has(method) && H.backendRpc) { const r = await relay(); if (r.ok) return r.v; }
+  throw new Error(fails.join(' · ') || 'No Solana RPC reachable');
 }
 
 let userDisconnected = false;   // once the user disconnects, nothing in this session re-attaches the wallet by itself
