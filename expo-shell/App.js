@@ -19,7 +19,7 @@ nacl.setPRNG((x, n) => { const v = new Uint8Array(n); global.crypto.getRandomVal
 // belt and braces: the page already locks itself on a phone, this makes sure of it before anything paints
 const LOCK = `(function(){ var m=document.querySelector('meta[name=viewport]'); if(!m){ m=document.createElement('meta'); m.name='viewport'; (document.head||document.documentElement).appendChild(m); } m.content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover'; })(); true;`;
 
-const SHELL_VERSION = '6';
+const SHELL_VERSION = '7';
 const FALLBACK_PROJECT_ID = 'ba75b1bb-0046-4852-8543-a10363235b2b';   // the team's Expo project (nae23); used when app.json has none   // shown in the app under Settings → Notifications, so an old shell is easy to spot
 const APP_URL = 'https://ssm-bit.github.io/MemeScreen/?m=1';
 const APP_ORIGIN = APP_URL.replace(/^(https?:\/\/[^/]+).*$/, '$1');
@@ -38,7 +38,7 @@ function phantomConnectUrl() {
   dapp = nacl.box.keyPair();
   const redirect = ExpoLinking.createURL('phantom');  // exp://…/--/phantom in Expo Go, memescreen://phantom in a build
   const q = new URLSearchParams({ app_url: APP_ORIGIN, dapp_encryption_public_key: bs58.encode(dapp.publicKey), redirect_link: redirect, cluster: 'mainnet-beta' });
-  return 'https://phantom.app/ul/v1/connect?' + q.toString();
+  return q.toString();   // caller prefixes phantom://v1/connect? (app scheme) or https://phantom.app/ul/v1/connect? (universal link)
 }
 function utf8(bytes) { let s = ''; for (const b of bytes) s += String.fromCharCode(b); try { return decodeURIComponent(escape(s)); } catch { return s; } }
 function phantomDecode(url) {
@@ -62,8 +62,9 @@ function phantomSignUrl(txB58, send) {
   const payload = new TextEncoder().encode(JSON.stringify({ transaction: txB58, session: phantomSession }));
   const enc = nacl.box.after(payload, nonce, phantomShared);
   const q = new URLSearchParams({ dapp_encryption_public_key: bs58.encode(dapp.publicKey), nonce: bs58.encode(nonce), redirect_link: ExpoLinking.createURL('phantom-sign'), payload: bs58.encode(enc) });
-  return 'https://phantom.app/ul/v1/' + (send ? 'signAndSendTransaction' : 'signTransaction') + '?' + q.toString();
+  return (send ? 'signAndSendTransaction' : 'signTransaction') + '?' + q.toString();
 }
+const openPhantom = path => Linking.openURL('phantom://v1/' + path).catch(() => Linking.openURL('https://phantom.app/ul/v1/' + path));
 function phantomSignDecode(url) {
   try {
     const p = new URL(url).searchParams;
@@ -117,8 +118,15 @@ export default function App() {
     let m; try { m = JSON.parse(e.nativeEvent.data); } catch { return; }
     if (m?.source !== 'memescreen') return;
     if (m.type === 'ms-open-url' && /^https?:/i.test(m.url || '')) { Linking.openURL(m.url).catch(() => {}); return; }
-    if (m.type === 'ms-wallet-connect') { let u; try { u = phantomConnectUrl(); } catch (e) { tell({ type: 'wallet', error: 'could not prepare the request: ' + e.message }); return; } Linking.openURL(u).catch(e => tell({ type: 'wallet', error: 'could not open Phantom: ' + (e?.message || 'is it installed?') })); return; }
-    if (m.type === 'ms-wallet-sign') { try { Linking.openURL(phantomSignUrl(m.tx, m.send)).catch(() => tell({ type: 'wallet-signed', error: 'Could not open Phantom' })); } catch (e) { tell({ type: 'wallet-signed', error: e.message }); } return; }
+    if (m.type === 'ms-wallet-connect') {
+      let q; try { q = phantomConnectUrl(); } catch (e) { tell({ type: 'wallet', error: 'could not prepare the request: ' + e.message }); return; }
+      tell({ type: 'wallet-status', msg: 'shell v' + SHELL_VERSION + ': opening Phantom…' });
+      // the app scheme opens Phantom directly; the universal link is the fallback (it opens Safari if Phantom is missing)
+      Linking.openURL('phantom://v1/connect?' + q)
+        .catch(() => Linking.openURL('https://phantom.app/ul/v1/connect?' + q))
+        .catch(e => tell({ type: 'wallet', error: 'could not open Phantom: ' + (e?.message || 'is it installed on this phone?') }));
+      return; }
+    if (m.type === 'ms-wallet-sign') { try { openPhantom(phantomSignUrl(m.tx, m.send)).catch(() => tell({ type: 'wallet-signed', error: 'Could not open Phantom' })); } catch (e) { tell({ type: 'wallet-signed', error: e.message }); } return; }
     if (m.type === 'ms-push-register') { registerPush(); return; }
     if (m.type === 'ms-wallet-ack') { pendingWallet.current = null; return; }
     if (m.type === 'ms-wallet-disconnect') { phantomShared = null; phantomSession = null; return; }
