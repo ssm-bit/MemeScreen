@@ -35,7 +35,7 @@ const signedIn = () => !!TOKEN && !guest;
 // ---------- constants (restored) ----------
 const START = 10000, PLATFORM = 0.01, LP = 0.003, NET = 0.10, GRADES = ['F','D','C','B','A'];
 let liveMode = false;   // true = the connected Phantom wallet is the active account (see setLiveMode)
-const BUILD = '2026-10-15d';   // shown in Settings and under the login form, so a phone on an old build is easy to spot
+const BUILD = '2026-10-15e';   // shown in Settings and under the login form, so a phone on an old build is easy to spot
 const ICON = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="20" fill="#0A0D12"/><circle cx="50" cy="50" r="36" fill="none" stroke="#22E4A0" stroke-width="6"/><path d="M57 31L70 26" fill="none" stroke="#22E4A0" stroke-width="5" stroke-linecap="round"/><rect x="31" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><rect x="59" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><path d="M33 66Q50 68 67 58" fill="none" stroke="#22E4A0" stroke-width="5.5" stroke-linecap="round"/></svg>');
 
 // ---------- global news feed (ticker + alerts) ----------
@@ -92,10 +92,10 @@ function notifyHost(msg){ try { if (window.ReactNativeWebView) window.ReactNativ
 function openExternal(url){ if (!url || url === '#') return; if (window.ReactNativeWebView) { try { window.ReactNativeWebView.postMessage(JSON.stringify({ source:'memescreen', type:'ms-open-url', url })); } catch {} return; } const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.dataset.ext = '1'; a.style.display = 'none'; document.body.appendChild(a); a.click(); a.remove(); }
 document.addEventListener('click', e => { const a = e.target.closest && e.target.closest('a[href]'); if (!a || a.dataset.ext) return; const href = a.getAttribute('href') || ''; if (!/^https?:/i.test(href)) return; e.preventDefault(); openExternal(a.href); }, true);
 window.addEventListener('message', e => { if (e.origin !== location.origin || e.data?.source !== 'phone-os') return; if (e.data.type === 'open-token') openTokenFromAlert(e.data.addr); if (e.data.type === 'shell-hello') { window.__shell = e.data; if (e.data.pushToken && signedIn()) { try { if (localStorage.getItem('ms_push_' + userKey()) !== e.data.pushToken) backend.savePushDevice({ token: e.data.pushToken, platform: e.data.platform }).then(() => { try { localStorage.setItem('ms_push_' + userKey(), e.data.pushToken); } catch {} notifState(); }).catch(() => {}); } catch {} } notifState(); }
-  if (e.data.type === 'wallet-status') toast(e.data.msg);
+  if (e.data.type === 'wallet-status') { toast(e.data.msg); const bm = $('brokerMsg'); if (bm && $('brokerModal')?.style.display !== 'none') bm.textContent = e.data.msg; }
   if (e.data.type === 'wallet') notifyHost({ type:'ms-wallet-ack' });
   if (e.data.type === 'push-token') { if (e.data.token && signedIn()) backend.savePushDevice({ token: e.data.token, platform: e.data.platform }).then(() => { try { localStorage.setItem('ms_push_' + userKey(), e.data.token); } catch {} toast('This phone is registered for push alerts'); notifState(); }).catch(err => toast('Push registration failed: ' + err.message)); else if (e.data.error) toast('Push: ' + e.data.error); }
-  if (e.data.type === 'wallet') { if (e.data.pub) { WAL.setExternal(e.data.pub).then(() => { toast('Phantom connected · ' + WAL.short(e.data.pub)); const bm = $('brokerModal'); if (bm) bm.style.display = 'none'; setLiveMode(true); show('trade'); }); } else toast('Phantom: ' + (e.data.error || 'not connected')); } });
+  if (e.data.type === 'wallet') { if (e.data.pub) { WAL.setExternal(e.data.pub).then(() => { toast('Phantom connected · ' + WAL.short(e.data.pub)); const bm = $('brokerModal'); if (bm) bm.style.display = 'none'; setLiveMode(true); show('trade'); }); } else { toast('Phantom: ' + (e.data.error || 'not connected')); const bm = $('brokerMsg'); if (bm && $('brokerModal')?.style.display !== 'none') bm.innerHTML = '<span class="warn">Phantom: ' + esc(e.data.error || 'not connected') + '</span>'; } } });
 
 // ---------- state ----------
 let cash = START, positions = [], trades = [], tokens = [], selected = null, sizeUsd = 250, live = false, tf = '5m', chartCache = {}, watch = new Set(), alerts = [], unread = 0;

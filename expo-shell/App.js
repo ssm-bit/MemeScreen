@@ -19,7 +19,7 @@ nacl.setPRNG((x, n) => { const v = new Uint8Array(n); global.crypto.getRandomVal
 // belt and braces: the page already locks itself on a phone, this makes sure of it before anything paints
 const LOCK = `(function(){ var m=document.querySelector('meta[name=viewport]'); if(!m){ m=document.createElement('meta'); m.name='viewport'; (document.head||document.documentElement).appendChild(m); } m.content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover'; })(); true;`;
 
-const SHELL_VERSION = '7';
+const SHELL_VERSION = '8';
 const FALLBACK_PROJECT_ID = 'ba75b1bb-0046-4852-8543-a10363235b2b';   // the team's Expo project (nae23); used when app.json has none   // shown in the app under Settings → Notifications, so an old shell is easy to spot
 const APP_URL = 'https://ssm-bit.github.io/MemeScreen/?m=1';
 const APP_ORIGIN = APP_URL.replace(/^(https?:\/\/[^/]+).*$/, '$1');
@@ -120,11 +120,14 @@ export default function App() {
     if (m.type === 'ms-open-url' && /^https?:/i.test(m.url || '')) { Linking.openURL(m.url).catch(() => {}); return; }
     if (m.type === 'ms-wallet-connect') {
       let q; try { q = phantomConnectUrl(); } catch (e) { tell({ type: 'wallet', error: 'could not prepare the request: ' + e.message }); return; }
-      tell({ type: 'wallet-status', msg: 'shell v' + SHELL_VERSION + ': opening Phantom…' });
-      // the app scheme opens Phantom directly; the universal link is the fallback (it opens Safari if Phantom is missing)
-      Linking.openURL('phantom://v1/connect?' + q)
-        .catch(() => Linking.openURL('https://phantom.app/ul/v1/connect?' + q))
-        .catch(e => tell({ type: 'wallet', error: 'could not open Phantom: ' + (e?.message || 'is it installed on this phone?') }));
+      (async () => {
+        let can = 'unknown'; try { can = String(await Linking.canOpenURL('phantom://')); } catch (e) { can = 'error ' + e.message; }
+        tell({ type: 'wallet-status', msg: 'shell v' + SHELL_VERSION + ': opening Phantom (app scheme reachable: ' + can + ')…' });
+        // the app scheme opens Phantom directly; the universal link is the fallback (it opens Safari if Phantom is missing)
+        try { await Linking.openURL('phantom://v1/connect?' + q); tell({ type: 'wallet-status', msg: 'handed to Phantom (app scheme)' }); return; } catch (e1) {
+          try { await Linking.openURL('https://phantom.app/ul/v1/connect?' + q); tell({ type: 'wallet-status', msg: 'handed to Phantom (universal link)' }); return; } catch (e2) {
+            tell({ type: 'wallet', error: 'could not open Phantom: ' + (e2?.message || e1?.message || 'is it installed on this phone?') }); } }
+      })();
       return; }
     if (m.type === 'ms-wallet-sign') { try { openPhantom(phantomSignUrl(m.tx, m.send)).catch(() => tell({ type: 'wallet-signed', error: 'Could not open Phantom' })); } catch (e) { tell({ type: 'wallet-signed', error: e.message }); } return; }
     if (m.type === 'ms-push-register') { registerPush(); return; }
@@ -140,7 +143,8 @@ export default function App() {
       <SafeAreaView style={styles.root} edges={['top', 'left', 'right', 'bottom']}>
         <WebView
           ref={web}
-          source={{ uri: APP_URL }}
+          source={{ uri: APP_URL + '&v=' + Date.now() }}   // fresh page every launch: the WebView otherwise keeps an old copy of the site
+          cacheEnabled={false}
           onMessage={onMessage}
           onLoadEnd={hello}
           // only the MemeScreen site may load inside the app; every other link (news, DexScreener, X) opens in Safari

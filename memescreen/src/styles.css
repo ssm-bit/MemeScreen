@@ -42,7 +42,7 @@
   .rule{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px} .rule input[type=number]{width:70px} .rule label{display:flex;align-items:center;gap:6px}
   @keyframes flashUp{from{background:rgba(34,228,160,.25)}to{background:transparent}} @keyframes flashDn{from{background:rgba(240,72,62,.25)}to{background:transparent}} .fu{animation:flashUp .8s ease-out}.fd{animation:flashDn .8s ease-out} @media(prefers-reduced-motion:reduce){.fu,.fd{animation:none}}
   footer{padding:14px 20px;border-top:1px solid var(--border);font-size:12px;color:var(--t3)}
-  .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--raised);border:1px solid var(--border);border-radius:10px;padding:10px 14px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw} .toast.show{opacity:1} @media(prefers-reduced-motion:reduce){.toast{transition:none}}
+  .toast{position:fixed;left:50%;bottom:22px;z-index:10001;transform:translateX(-50%);background:var(--raised);border:1px solid var(--border);border-radius:10px;padding:10px 14px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw} .toast.show{opacity:1} @media(prefers-reduced-motion:reduce){.toast{transition:none}}
   .ok{color:var(--brand)} .warn{color:var(--C)}
 
   /* auth */
