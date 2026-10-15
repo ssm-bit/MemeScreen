@@ -13,11 +13,13 @@ import * as ExpoLinking from 'expo-linking';
 import Constants from 'expo-constants';
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
+// tweetnacl looks for a browser PRNG and does not find one under Hermes; hand it the polyfilled crypto.getRandomValues
+nacl.setPRNG((x, n) => { const v = new Uint8Array(n); global.crypto.getRandomValues(v); for (let i = 0; i < n; i++) x[i] = v[i]; });
 
 // belt and braces: the page already locks itself on a phone, this makes sure of it before anything paints
 const LOCK = `(function(){ var m=document.querySelector('meta[name=viewport]'); if(!m){ m=document.createElement('meta'); m.name='viewport'; (document.head||document.documentElement).appendChild(m); } m.content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover'; })(); true;`;
 
-const SHELL_VERSION = '5';
+const SHELL_VERSION = '6';
 const FALLBACK_PROJECT_ID = 'ba75b1bb-0046-4852-8543-a10363235b2b';   // the team's Expo project (nae23); used when app.json has none   // shown in the app under Settings → Notifications, so an old shell is easy to spot
 const APP_URL = 'https://ssm-bit.github.io/MemeScreen/?m=1';
 const APP_ORIGIN = APP_URL.replace(/^(https?:\/\/[^/]+).*$/, '$1');
@@ -115,7 +117,7 @@ export default function App() {
     let m; try { m = JSON.parse(e.nativeEvent.data); } catch { return; }
     if (m?.source !== 'memescreen') return;
     if (m.type === 'ms-open-url' && /^https?:/i.test(m.url || '')) { Linking.openURL(m.url).catch(() => {}); return; }
-    if (m.type === 'ms-wallet-connect') { Linking.openURL(phantomConnectUrl()).catch(() => tell({ type: 'wallet', error: 'Phantom is not installed' })); return; }
+    if (m.type === 'ms-wallet-connect') { let u; try { u = phantomConnectUrl(); } catch (e) { tell({ type: 'wallet', error: 'could not prepare the request: ' + e.message }); return; } Linking.openURL(u).catch(e => tell({ type: 'wallet', error: 'could not open Phantom: ' + (e?.message || 'is it installed?') })); return; }
     if (m.type === 'ms-wallet-sign') { try { Linking.openURL(phantomSignUrl(m.tx, m.send)).catch(() => tell({ type: 'wallet-signed', error: 'Could not open Phantom' })); } catch (e) { tell({ type: 'wallet-signed', error: e.message }); } return; }
     if (m.type === 'ms-push-register') { registerPush(); return; }
     if (m.type === 'ms-wallet-ack') { pendingWallet.current = null; return; }

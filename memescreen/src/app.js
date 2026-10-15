@@ -35,7 +35,7 @@ const signedIn = () => !!TOKEN && !guest;
 // ---------- constants (restored) ----------
 const START = 10000, PLATFORM = 0.01, LP = 0.003, NET = 0.10, GRADES = ['F','D','C','B','A'];
 let liveMode = false;   // true = the connected Phantom wallet is the active account (see setLiveMode)
-const BUILD = '2026-10-15b';   // shown in Settings and under the login form, so a phone on an old build is easy to spot
+const BUILD = '2026-10-15c';   // shown in Settings and under the login form, so a phone on an old build is easy to spot
 const ICON = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="20" fill="#0A0D12"/><circle cx="50" cy="50" r="36" fill="none" stroke="#22E4A0" stroke-width="6"/><path d="M57 31L70 26" fill="none" stroke="#22E4A0" stroke-width="5" stroke-linecap="round"/><rect x="31" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><rect x="59" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><path d="M33 66Q50 68 67 58" fill="none" stroke="#22E4A0" stroke-width="5.5" stroke-linecap="round"/></svg>');
 
 // ---------- global news feed (ticker + alerts) ----------
@@ -936,6 +936,7 @@ function renderDetail(){
 }
 // ---------- live ticket (Phantom + Jupiter) ----------
 let lvSide = 'buy', lvSol = 0.05, lvPct = 50, lvQuote = null, lvBusy = false;
+const FEE_RESERVE = 0.012;   // SOL kept back for network + priority fees and the wrapped-SOL account
 function renderLiveTicket(t, op){
   const h = WAL.list().find(x => x.mint === t.addr); const bal = WAL.solBalance(); const sp = WAL.solPrice() || solUsd || 0;
   const keepQ = op.dataset.qaddr === t.addr && op.dataset.qside === lvSide ? lvQuote : null; lvQuote = keepQ; op.dataset.qaddr = t.addr; op.dataset.qside = lvSide;
@@ -946,7 +947,8 @@ function renderLiveTicket(t, op){
       ${lvSide==='buy' ? `
       <div class="ordlabel">Amount <span style="color:var(--t3)">· ◎${lvSol} ${sp?'≈ '+fmt(lvSol*sp):''}</span></div>
       <div class="presets">${[0.01,0.05,0.1,0.25,0.5].map(v=>`<button class="sol ${v===lvSol?'on':''}" data-lsol="${v}">◎${v}</button>`).join('')}</div>
-      <div class="presets pctrow"><input class="ordinput sm num" id="lvCustom" placeholder="Custom ◎" inputmode="decimal" style="flex:1"></div>` : `
+      <div class="presets pctrow">${[10,25,50,100].map(pc=>{ const v=Math.max(0, Math.floor((bal - FEE_RESERVE) * pc/100 * 1e4)/1e4); return `<button class="pct ${v>0&&Math.abs(v-lvSol)<1e-4?'on':''}" data-lsol="${v}" ${v<=0?'disabled':''} title="${pc}% of the SOL you can spend after keeping ◎${FEE_RESERVE} for fees">${pc===100?'Max':pc+'%'}</button>`; }).join('')}<input class="ordinput sm num" id="lvCustom" placeholder="Custom ◎" inputmode="decimal" style="flex:1;margin-left:6px"></div>
+      <div class="hint">Spendable ◎${Math.max(0, bal - FEE_RESERVE).toFixed(4)}${sp?' ('+fmt(Math.max(0, bal - FEE_RESERVE)*sp)+')':''} after a ◎${FEE_RESERVE} fee reserve. Shorts are paper only: a DEX swap can only buy or sell what you hold.</div>` : `
       <div class="ordlabel">You hold <span style="color:var(--t3)">· ${h ? h.amount.toLocaleString(undefined,{maximumFractionDigits:2})+' '+esc(t.sym)+(h.price?' ≈ '+fmt(h.value):'') : 'none of '+esc(t.sym)}</span></div>
       <div class="presets pctrow">${[25,50,100].map(p=>`<button class="pct ${p===lvPct?'on':''}" data-lpct="${p}">${p}%</button>`).join('')}</div>`}
       <button class="mini" id="lvQuoteBtn" style="width:100%;margin:8px 0" ${lvBusy?'disabled':''}>${lvBusy?'Working…':'Get Jupiter quote'}</button>
@@ -970,7 +972,7 @@ function renderLiveTicket(t, op){
       q = await LIVE.quote({ inputMint: inMint, outputMint: outMint, amount });
       const dec = lvSide === 'buy' ? await LIVE.decimals(t.addr) : 9;
       const out = +q.outAmount / Math.pow(10, dec), impact = +q.priceImpactPct * 100, minOut = out * (1 - (q.slippageBps||150)/10000);
-      const need = lvSide === 'buy' ? lvSol + 0.01 : 0.01;
+      const need = lvSide === 'buy' ? lvSol + FEE_RESERVE : FEE_RESERVE;
       const funds = bal >= need ? '' : `<div class="warn" style="margin-top:4px">Wallet has ◎${bal.toFixed(3)}; this order needs about ◎${need.toFixed(3)} including fees. <a href="#" id="lvDep">Deposit</a> or size down. Test mode still works.</div>`;
       lvQuote = { q, html: `<b>${lvSide==='buy' ? 'You get ≈ '+out.toLocaleString(undefined,{maximumFractionDigits:2})+' '+esc(t.sym) : 'You get ≈ ◎'+out.toFixed(4)+(sp?' ('+fmt(out*sp)+')':'')}</b><div>Min after slippage ${lvSide==='buy' ? minOut.toLocaleString(undefined,{maximumFractionDigits:2}) : '◎'+minOut.toFixed(4)} · price impact ${impact.toFixed(2)}% · route ${q.routePlan?.map(r=>r.swapInfo?.label).filter(Boolean).slice(0,3).join(' → ') || 'direct'}</div>${funds}` };
     } catch (e) { lvQuote = null; toast('Quote failed: ' + (e.message || e)); }
@@ -978,7 +980,7 @@ function renderLiveTicket(t, op){
   };
   $('lvGo').onclick = async () => {
     if (!lvQuote) return; const send = !!window.__msSendForReal;
-    if (send && lvSide === 'buy' && bal < lvSol + 0.01) return toast('Not enough SOL in the wallet for a real order');
+    if (send && lvSide === 'buy' && bal < lvSol + FEE_RESERVE) return toast('Not enough SOL in the wallet for a real order');
     lvBusy = true; renderDetail(); const st = () => $('lvStatus');
     try {
       if (st()) st().textContent = 'Building the swap with Jupiter…';
