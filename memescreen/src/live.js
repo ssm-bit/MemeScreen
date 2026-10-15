@@ -44,16 +44,34 @@ let web3p = null;
 function web3(){ if (window.solanaWeb3) return Promise.resolve(window.solanaWeb3); if (!web3p) web3p = new Promise((res, rej) => { const s = document.createElement('script'); s.src = WEB3; s.onload = () => res(window.solanaWeb3); s.onerror = () => rej(new Error('Could not load the Solana library')); document.head.appendChild(s); }); return web3p; }
 const b64toBytes = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+function fromB58(s){ const bytes = [0]; for (const ch of s) { let c = B58.indexOf(ch); if (c < 0) throw new Error('bad base58'); for (let i = 0; i < bytes.length; i++) { c += bytes[i] * 58; bytes[i] = c & 0xff; c >>= 8; } while (c) { bytes.push(c & 0xff); c >>= 8; } } for (const ch of s) { if (ch !== '1') break; bytes.push(0); } return Uint8Array.from(bytes.reverse()); }
+const bytesToB64 = b => btoa(String.fromCharCode(...b));
+const RPC_LIST = () => [CONFIG.rpcUrl, 'https://solana-rpc.publicnode.com', 'https://solana.leorpc.com/?api_key=FREE', 'https://api.mainnet-beta.solana.com'].filter(Boolean);
+// Phantom's deep link only signs (signAndSendTransaction is deprecated): the app broadcasts the signed bytes itself
+export async function broadcast(signedB58, backendRpc){
+  const bytes = fromB58(signedB58); if (bytes.length < 65 || bytes.slice(1, 65).every(b => b === 0)) throw new Error('Phantom returned an unsigned transaction; nothing was sent');
+  const b64 = bytesToB64(bytes); const fails = [];
+  for (const url of RPC_LIST()) {
+    try { const r = await fetch(url, { method:'POST', headers:{ 'content-type':'application/json' }, body: JSON.stringify({ jsonrpc:'2.0', id:1, method:'sendTransaction', params:[b64, { encoding:'base64', skipPreflight:false, maxRetries:3 }] }) });
+      const j = await r.json(); if (j.error) throw new Error(j.error.message || 'rpc error'); if (j.result && !/^1+$/.test(j.result)) return j.result; throw new Error('RPC accepted it without a real signature'); } catch (e) { fails.push(url.replace(/^https?:\/\//, '').split('/')[0] + ': ' + e.message); }
+  }
+  if (backendRpc) { try { return await backendRpc('sendTransaction', [b64, { encoding:'base64', skipPreflight:false, maxRetries:3 }]); } catch (e) { fails.push('backend: ' + e.message); } }
+  throw new Error('Signed, but could not broadcast: ' + fails.join(' · '));
+}
 function toB58(bytes){ const d = [0]; for (const b of bytes) { let c = b; for (let i = 0; i < d.length; i++) { c += d[i] << 8; d[i] = c % 58; c = (c / 58) | 0; } while (c) { d.push(c % 58); c = (c / 58) | 0; } } let s = ''; for (const b of bytes) { if (b) break; s += '1'; } for (let i = d.length - 1; i >= 0; i--) s += B58[d[i]]; return s; }
 
 // returns { signature } when sent, { signed: true } in test mode
-export async function signWithPhantom(txB64, { send }){
+export async function signWithPhantom(txB64, { send, backendRpc }){
   const shell = !!window.ReactNativeWebView, prov = (window.phantom && window.phantom.solana) || (window.solana?.isPhantom ? window.solana : null);
   if (shell && !prov) {
     // the Expo shell runs Phantom's deep-link signing and answers with a phone-os message
     return new Promise((res, rej) => {
       const to = setTimeout(() => { window.removeEventListener('message', h); rej(new Error('Phantom did not answer (timed out)')); }, 180000);
-      const h = e => { const m = e.data; if (e.origin !== location.origin || m?.source !== 'phone-os' || m.type !== 'wallet-signed') return; clearTimeout(to); window.removeEventListener('message', h); if (m.error) rej(new Error(m.error)); else res(m.signature ? { signature: m.signature } : { signed: true }); };
+      const h = e => { const m = e.data; if (e.origin !== location.origin || m?.source !== 'phone-os' || m.type !== 'wallet-signed') return; clearTimeout(to); window.removeEventListener('message', h);
+        if (m.error) return rej(new Error(m.error));
+        if (m.signature) return res({ signature: m.signature });
+        if (send && m.transaction) return broadcast(m.transaction, backendRpc).then(sig => res({ signature: sig }), rej);   // Phantom signed; we send
+        res({ signed: true }); };
       window.addEventListener('message', h);
       window.ReactNativeWebView.postMessage(JSON.stringify({ source: 'memescreen', type: 'ms-wallet-sign', tx: toB58(b64toBytes(txB64)), send: !!send }));
     });

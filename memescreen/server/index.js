@@ -118,7 +118,7 @@ app.post('/api/reset', limitAuth, async (req, res) => {
 });
 
 // ---- Solana RPC relay (read-only; browsers get 403 from the public RPC for indexed calls) ----
-const RPC_OK = new Set(['getTokenAccountsByOwner', 'getBalance', 'getMultipleAccounts', 'getAccountInfo', 'getTokenSupply', 'getTokenAccountBalance']);
+const RPC_OK = new Set(['getTokenAccountsByOwner', 'getBalance', 'getMultipleAccounts', 'getAccountInfo', 'getTokenSupply', 'getTokenAccountBalance', 'sendTransaction', 'getSignatureStatuses']);
 app.post('/api/rpc', async (req, res) => {
   const { method, params } = req.body || {};
   if (!RPC_OK.has(method)) return res.status(400).json({ error: 'method not allowed' });

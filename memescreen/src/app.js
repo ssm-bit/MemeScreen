@@ -35,7 +35,7 @@ const signedIn = () => !!TOKEN && !guest;
 // ---------- constants (restored) ----------
 const START = 10000, PLATFORM = 0.01, LP = 0.003, NET = 0.10, GRADES = ['F','D','C','B','A'];
 let liveMode = false;   // true = the connected Phantom wallet is the active account (see setLiveMode)
-const BUILD = '2026-10-15h';   // shown in Settings and under the login form, so a phone on an old build is easy to spot
+const BUILD = '2026-10-15i';   // shown in Settings and under the login form, so a phone on an old build is easy to spot
 const ICON = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="20" fill="#0A0D12"/><circle cx="50" cy="50" r="36" fill="none" stroke="#22E4A0" stroke-width="6"/><path d="M57 31L70 26" fill="none" stroke="#22E4A0" stroke-width="5" stroke-linecap="round"/><rect x="31" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><rect x="59" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><path d="M33 66Q50 68 67 58" fill="none" stroke="#22E4A0" stroke-width="5.5" stroke-linecap="round"/></svg>');
 
 // ---------- global news feed (ticker + alerts) ----------
@@ -98,7 +98,7 @@ window.addEventListener('message', e => { if (e.origin !== location.origin || e.
   if (e.data.type === 'wallet') { if (e.data.pub) { WAL.setExternal(e.data.pub).then(() => { toast('Phantom connected · ' + WAL.short(e.data.pub)); const bm = $('brokerModal'); if (bm) bm.style.display = 'none'; setLiveMode(true); show('trade'); }); } else { toast('Phantom: ' + (e.data.error || 'not connected')); const bm = $('brokerMsg'); if (bm && $('brokerModal')?.style.display !== 'none') bm.innerHTML = '<span class="warn">Phantom: ' + esc(e.data.error || 'not connected') + '</span>'; } } });
 
 // ---------- state ----------
-let lastWalKey = '';
+let lastWalKey = '', lvStatusHtml = '';   // the ticket's last order result survives re-renders (wallet refresh, candle updates)
 let cash = START, positions = [], trades = [], tokens = [], selected = null, sizeUsd = 250, live = false, tf = '5m', chartCache = {}, watch = new Set(), alerts = [], unread = 0;
 let indi = { ma20:false, ma50:false, ema20:false, rsi:false, bb:false }, drawTool = null, newsCache = {};
 let ordType = 'market';
@@ -958,7 +958,7 @@ function renderLiveTicket(t, op){
       <div id="lvQuoteBox" class="hint">${lvQuote ? lvQuote.html : 'Quotes come from Jupiter, the Solana aggregator. Slippage 1.5%.'}</div>
       <label class="remember" style="margin-top:8px"><input type="checkbox" id="lvSend" ${window.__msSendForReal?'checked':''}> <span>Send for real <em>otherwise Phantom signs and nothing is sent (test mode)</em></span></label>
       <button class="${lvSide==='buy'?'primary':'danger'}" id="lvGo" style="width:100%;margin-top:8px" ${!lvQuote||lvBusy?'disabled':''}>${window.__msSendForReal ? (lvSide==='buy'?'Buy':'Sell')+' with Phantom' : 'Sign with Phantom (test, not sent)'}</button>
-      <div id="lvStatus" class="hint" style="margin-top:8px"></div>
+      <div id="lvStatus" class="hint" style="margin-top:8px">${lvStatusHtml}</div>
       <div class="hint" style="margin-top:8px">Live orders never touch the paper accounts or the leaderboard. Market cap, grade and alerts work the same.</div>
     </div>`;
   $('lvRefresh').onclick = async () => { await WAL.refresh(); renderDetail(); };
@@ -968,7 +968,7 @@ function renderLiveTicket(t, op){
   const cu = $('lvCustom'); if (cu) cu.onchange = () => { const v = +cu.value; if (v > 0) { lvSol = Math.round(v*1e4)/1e4; lvQuote = null; renderDetail(); } };
   $('lvSend').onchange = e => { window.__msSendForReal = e.target.checked; if (e.target.checked && !confirm('Send for real: Phantom will broadcast the signed swap and real SOL moves. Continue?')) { window.__msSendForReal = false; } renderDetail(); };
   $('lvQuoteBtn').onclick = async () => {
-    lvBusy = true; renderDetail();
+    lvBusy = true; lvStatusHtml = ''; renderDetail();
     try {
       let q, inMint, outMint, amount;
       if (lvSide === 'buy') { inMint = LIVE.SOL_MINT; outMint = t.addr; amount = Math.floor(lvSol * 1e9); }
@@ -990,12 +990,13 @@ function renderLiveTicket(t, op){
       if (st()) st().textContent = 'Building the swap with Jupiter…';
       const tx = await LIVE.buildSwap(lvQuote.q, WAL.address());
       if (st()) st().textContent = send ? 'Phantom is asking you to approve…' : 'Phantom is asking you to sign (test mode, nothing is sent)…';
-      const r = await LIVE.signWithPhantom(tx, { send });
+      const r = await LIVE.signWithPhantom(tx, { send, backendRpc: (m, p) => backend.rpc(m, p) });
       lvBusy = false; lvQuote = null; renderDetail();
-      if (r.signature) { toast('Sent · ' + r.signature.slice(0, 8) + '…'); $('lvStatus').innerHTML = `Sent. <a href="${LIVE.explorer(r.signature)}" target="_blank" rel="noopener">View on Solscan</a>. The wallet card updates in a moment.`; setTimeout(() => WAL.refresh(), 8000); setTimeout(() => WAL.refresh(), 25000); }
-      else { toast('Signed in test mode — not sent'); $('lvStatus').textContent = 'Phantom signed the real transaction. It was not broadcast, so nothing moved. Tick "Send for real" to trade.'; }
+      if (r.signature) { toast('Sent · ' + r.signature.slice(0, 8) + '…'); lvStatusHtml = `Sent. <a href="${LIVE.explorer(r.signature)}" target="_blank" rel="noopener">View on Solscan</a>. The wallet card updates in a moment.`; setTimeout(() => WAL.refresh(), 8000); setTimeout(() => WAL.refresh(), 25000); }
+      else { toast('Signed in test mode — not sent'); lvStatusHtml = esc('Phantom signed the real transaction. It was not broadcast, so nothing moved. Tick "Send for real" to trade.'); }
+      $('lvStatus').innerHTML = lvStatusHtml;
       fireAlert?.('live', t, (send ? 'Live ' : 'Test ') + lvSide + ' ' + t.sym + (lvSide==='buy' ? ' ◎' + lvSol : ' ' + lvPct + '%'));
-    } catch (e) { lvBusy = false; renderDetail(); toast('Phantom: ' + (e.message || e)); const s2 = $('lvStatus'); if (s2) s2.textContent = e.message || String(e); }
+    } catch (e) { lvBusy = false; lvStatusHtml = esc(e.message || String(e)); renderDetail(); toast('Phantom: ' + (e.message || e)); }
   };
 }
 let bottomTab = 'positions';

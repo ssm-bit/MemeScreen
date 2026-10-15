@@ -58,7 +58,7 @@ Parse.Cloud.beforeSave('PushDevice', req => {
 // ---------- Solana RPC relay ----------
 // Public RPC endpoints refuse "indexed" reads (getTokenAccountsByOwner) when the request comes from a browser.
 // The app sends those through here; the server-side request is allowed. Read-only methods only.
-const RPC_OK = new Set(['getTokenAccountsByOwner', 'getBalance', 'getMultipleAccounts', 'getAccountInfo', 'getTokenSupply', 'getTokenAccountBalance']);
+const RPC_OK = new Set(['getTokenAccountsByOwner', 'getBalance', 'getMultipleAccounts', 'getAccountInfo', 'getTokenSupply', 'getTokenAccountBalance', 'sendTransaction', 'getSignatureStatuses']);
 Parse.Cloud.define('rpc', async req => {
   const { method, params } = req.params || {};
   if (!RPC_OK.has(method)) throw 'method not allowed';
