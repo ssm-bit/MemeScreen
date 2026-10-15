@@ -12,7 +12,7 @@
 import CONFIG from './config.js';
 // Order matters: the Solana Labs endpoint answers browsers with 403, publicnode allows plain (non-indexed) reads and
 // WebSocket subscriptions from a browser. A Helius key in config.js goes first when present.
-const HTTP = [CONFIG.rpcUrl, 'https://solana-rpc.publicnode.com', 'https://api.mainnet-beta.solana.com'].filter(Boolean);
+const HTTP = [CONFIG.rpcUrl, 'https://solana-rpc.publicnode.com', 'https://solana.leorpc.com/?api_key=FREE', 'https://api.mainnet-beta.solana.com'].filter(Boolean);
 const WSS  = [CONFIG.wsUrl, 'wss://solana-rpc.publicnode.com', 'wss://api.mainnet-beta.solana.com'].filter(Boolean);
 const POLL_MS = CONFIG.rpcUrl ? 1000 : 1500;
 const SOL  = 'So11111111111111111111111111111111111111112';

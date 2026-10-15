@@ -7,7 +7,7 @@
 // ============================================================
 const $ = id => document.getElementById(id);
 import CONFIG from './config.js';
-const RPCS = [CONFIG.rpcUrl, 'https://solana-rpc.publicnode.com', 'https://api.mainnet-beta.solana.com'].filter(Boolean);
+const RPCS = [CONFIG.rpcUrl, 'https://solana-rpc.publicnode.com', 'https://solana.leorpc.com/?api_key=FREE', 'https://api.mainnet-beta.solana.com'].filter(Boolean);   // leorpc: keyless, CORS-open fallback for phones whose network blocks publicnode
 const INDEXED = new Set(['getTokenAccountsByOwner', 'getProgramAccounts']);   // public RPCs refuse these from a browser; the backend relays them
 const SOL = 'So11111111111111111111111111111111111111112';
 const TOKEN = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', TOKEN22 = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
