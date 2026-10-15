@@ -76,12 +76,17 @@ export async function setExternalDisconnect(){ userDisconnected = true; }
 export async function refresh(){
   if (!pub || busy) return; busy = true; err = '';
   try {
-    const [bal, a1, a2] = await Promise.all([
-      rpc('getBalance', [pub]),
-      rpc('getTokenAccountsByOwner', [pub, { programId: TOKEN }, { encoding:'jsonParsed' }]),
-      rpc('getTokenAccountsByOwner', [pub, { programId: TOKEN22 }, { encoding:'jsonParsed' }]).catch(() => ({ value: [] })),
-    ]);
+    // SOL balance first and on its own: a plain getBalance works on every public RPC, so it must never be lost
+    // because the token listing (an indexed call the public RPCs refuse from a browser) failed
+    const bal = await rpc('getBalance', [pub]);
     sol = (bal?.value ?? bal ?? 0) / 1e9;
+    let a1 = { value: [] }, a2 = { value: [] };
+    try {
+      [a1, a2] = await Promise.all([
+        rpc('getTokenAccountsByOwner', [pub, { programId: TOKEN }, { encoding:'jsonParsed' }]),
+        rpc('getTokenAccountsByOwner', [pub, { programId: TOKEN22 }, { encoding:'jsonParsed' }]).catch(() => ({ value: [] })),
+      ]);
+    } catch (e) { err = 'Token list unavailable (' + (e.message || 'rpc') + '). SOL is correct; deploy the rpc cloud function or set rpcUrl in config.js.'; }
     const accts = [...(a1?.value || []), ...(a2?.value || [])].map(x => x.account?.data?.parsed?.info).filter(Boolean)
       .map(i => ({ mint: i.mint, amount: +(i.tokenAmount?.uiAmount || 0), dec: +(i.tokenAmount?.decimals ?? 6) })).filter(x => x.amount > 0);
     // merge duplicate mints (several token accounts for one mint)
@@ -100,6 +105,8 @@ export async function refresh(){
 
 export const list = () => holdings;
 export const solBalance = () => sol;
+export const error = () => err;
+export const reading = () => busy;
 export const solPrice = () => solUsd;
 export function total(){ return sol * solUsd + holdings.reduce((s, h) => s + h.value, 0); }
 

@@ -35,7 +35,7 @@ const signedIn = () => !!TOKEN && !guest;
 // ---------- constants (restored) ----------
 const START = 10000, PLATFORM = 0.01, LP = 0.003, NET = 0.10, GRADES = ['F','D','C','B','A'];
 let liveMode = false;   // true = the connected Phantom wallet is the active account (see setLiveMode)
-const BUILD = '2026-10-15e';   // shown in Settings and under the login form, so a phone on an old build is easy to spot
+const BUILD = '2026-10-15f';   // shown in Settings and under the login form, so a phone on an old build is easy to spot
 const ICON = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="20" fill="#0A0D12"/><circle cx="50" cy="50" r="36" fill="none" stroke="#22E4A0" stroke-width="6"/><path d="M57 31L70 26" fill="none" stroke="#22E4A0" stroke-width="5" stroke-linecap="round"/><rect x="31" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><rect x="59" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><path d="M33 66Q50 68 67 58" fill="none" stroke="#22E4A0" stroke-width="5.5" stroke-linecap="round"/></svg>');
 
 // ---------- global news feed (ticker + alerts) ----------
@@ -98,6 +98,7 @@ window.addEventListener('message', e => { if (e.origin !== location.origin || e.
   if (e.data.type === 'wallet') { if (e.data.pub) { WAL.setExternal(e.data.pub).then(() => { toast('Phantom connected · ' + WAL.short(e.data.pub)); const bm = $('brokerModal'); if (bm) bm.style.display = 'none'; setLiveMode(true); show('trade'); }); } else { toast('Phantom: ' + (e.data.error || 'not connected')); const bm = $('brokerMsg'); if (bm && $('brokerModal')?.style.display !== 'none') bm.innerHTML = '<span class="warn">Phantom: ' + esc(e.data.error || 'not connected') + '</span>'; } } });
 
 // ---------- state ----------
+let lastWalKey = '';
 let cash = START, positions = [], trades = [], tokens = [], selected = null, sizeUsd = 250, live = false, tf = '5m', chartCache = {}, watch = new Set(), alerts = [], unread = 0;
 let indi = { ma20:false, ma50:false, ema20:false, rsi:false, bb:false }, drawTool = null, newsCache = {};
 let ordType = 'market';
@@ -579,7 +580,7 @@ function applyIndicators(){
 }
 // ---------- drawings (native overlays + TP/SL/order lines) ----------
 SCR.init({ tokens: () => tokens, select: t => { selected = t; show('trade'); render(); document.querySelector('.m-segs [data-seg=chart]')?.click(); }, toast, fireAlert, saveScreens: () => save('prefs'), signedIn });
-WAL.init({ grade, fetchPairs, gBadge, toast, openExternal, fmt, fmtP, fmtK, solUsd: () => solUsd, savePrefs: () => save('prefs'), backendRpc: (m, p) => backend.rpc(m, p), onChange: () => { renderAccountUI(); if (liveMode && !WAL.connected()) setLiveMode(false); if (liveMode) { updateLive(); if (bottomTab==='positions') renderPositions(); } }, select: t => { const have = tokens.find(x => x.addr === t.addr); if (!have) { t.grade = grade(t); tokens.push(t); } selected = have || t; show('trade'); render(); document.querySelector('.m-segs [data-seg=chart]')?.click(); } });
+WAL.init({ grade, fetchPairs, gBadge, toast, openExternal, fmt, fmtP, fmtK, solUsd: () => solUsd, savePrefs: () => save('prefs'), backendRpc: (m, p) => backend.rpc(m, p), onChange: () => { renderAccountUI(); if (liveMode && !WAL.connected()) setLiveMode(false); if (liveMode) { updateLive(); if (bottomTab==='positions') renderPositions(); const key = WAL.solBalance() + '|' + WAL.list().length + '|' + WAL.error(); if (key !== lastWalKey) { lastWalKey = key; if (selected) renderDetail(); } } }, select: t => { const have = tokens.find(x => x.addr === t.addr); if (!have) { t.grade = grade(t); tokens.push(t); } selected = have || t; show('trade'); render(); document.querySelector('.m-segs [data-seg=chart]')?.click(); } });
 FEED.init({ sol: () => solUsd, price: (t, px) => { t.target = px; t.feedAt = Date.now(); } });   // tick() eases price → target, which also refreshes the header, list and candle
 // the inline [data-legal] handler in index.html only switches the view; the buttons on that page are wired here
 document.addEventListener('click', e => { if (e.target.closest && e.target.closest('[data-legal]')) setTimeout(renderLegal, 0); });
@@ -943,7 +944,8 @@ function renderLiveTicket(t, op){
   const keepQ = op.dataset.qaddr === t.addr && op.dataset.qside === lvSide ? lvQuote : null; lvQuote = keepQ; op.dataset.qaddr = t.addr; op.dataset.qside = lvSide;
   op.innerHTML = `
     <div class="ticket live">
-      <div class="livehead"><span class="livetag">LIVE</span> Phantom ${esc(WAL.short(WAL.address()))} · ◎${bal.toFixed(3)}${sp?' · '+fmt(bal*sp):''}</div>
+      <div class="livehead"><span class="livetag">LIVE</span> Phantom ${esc(WAL.short(WAL.address()))} · ◎${bal.toFixed(3)}${sp?' · '+fmt(bal*sp):''} <button class="mini" id="lvRefresh" ${WAL.reading()?'disabled':''} style="margin-left:auto">${WAL.reading()?'Reading…':'Refresh'}</button></div>
+      ${WAL.error() ? `<div class="hint warn">${esc(WAL.error())}</div>` : ''}
       <div class="ordtabs"><button class="ordtab ${lvSide==='buy'?'on':''}" data-ls="buy">Buy</button><button class="ordtab ${lvSide==='sell'?'on':''}" data-ls="sell">Sell</button></div>
       ${lvSide==='buy' ? `
       <div class="ordlabel">Amount <span style="color:var(--t3)">· ◎${lvSol} ${sp?'≈ '+fmt(lvSol*sp):''}</span></div>
@@ -959,6 +961,7 @@ function renderLiveTicket(t, op){
       <div id="lvStatus" class="hint" style="margin-top:8px"></div>
       <div class="hint" style="margin-top:8px">Live orders never touch the paper accounts or the leaderboard. Market cap, grade and alerts work the same.</div>
     </div>`;
+  $('lvRefresh').onclick = async () => { await WAL.refresh(); renderDetail(); };
   op.querySelectorAll('[data-ls]').forEach(b => b.onclick = () => { lvSide = b.dataset.ls; lvQuote = null; renderDetail(); });
   op.querySelectorAll('[data-lsol]').forEach(b => b.onclick = () => { lvSol = +b.dataset.lsol; lvQuote = null; renderDetail(); });
   op.querySelectorAll('[data-lpct]').forEach(b => b.onclick = () => { lvPct = +b.dataset.lpct; lvQuote = null; renderDetail(); });
