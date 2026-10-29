@@ -38,7 +38,7 @@ const START = 10000, PLATFORM = 0.01, LP = 0.003, NET = 0.10, GRADES = ['F','D',
 let liveMode = false;   // true = a live wallet is the active account (see setLiveMode)
 let liveSrc = 'phantom';   // which live wallet: 'phantom' (user signs each order) or 'tw' (MemeScreen wallet, server executes)
 const LW = () => (liveSrc === 'tw' ? TW : WAL);
-const BUILD = '2026-10-29a';   // shown in Settings and under the login form, so a phone on an old build is easy to spot
+const BUILD = '2026-10-29b';   // shown in Settings and under the login form, so a phone on an old build is easy to spot
 const ICON = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="20" fill="#0A0D12"/><circle cx="50" cy="50" r="36" fill="none" stroke="#22E4A0" stroke-width="6"/><path d="M57 31L70 26" fill="none" stroke="#22E4A0" stroke-width="5" stroke-linecap="round"/><rect x="31" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><rect x="59" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><path d="M33 66Q50 68 67 58" fill="none" stroke="#22E4A0" stroke-width="5.5" stroke-linecap="round"/></svg>');
 
 // ---------- global news feed (ticker + alerts) ----------
@@ -452,12 +452,32 @@ async function renderComp(){
 
 // ---------- portfolio ----------
 function renderPortfolio(){
+  if (liveMode && liveSrc === 'tw') { renderTwPortfolio(); return; }
   WAL.render();
   const B=baseline(); const eq = equity(), pnl = eq - B, closed = trades.filter(t => !t.open && !t.note); const wins = closed.filter(t => t.pnl > 0).length; const fees = trades.reduce((s,t) => s + (t.fees||0), 0);
   $('pkpis').innerHTML = [['Equity', fmt(eq)], ['Total P&L', fmt(pnl) + ' (' + pct(pnl/B*100) + ')'], ['Win rate', closed.length ? Math.round(wins/closed.length*100) + '% of ' + closed.length : '—'], ['Fees paid', fmt(fees)], ['Open positions', positions.length], ['This week', pct((eq-weekStartEq)/weekStartEq*100)]].map(([k,v]) => `<div>${k}<b class="num">${v}</b></div>`).join('');
   const byg = {}; for (const t of closed) { byg[t.grade] = (byg[t.grade]||0) + (t.pnl||0); } const mx = Math.max(1, ...Object.values(byg).map(Math.abs));
   $('bygrade').innerHTML = GRADES.slice().reverse().map(g => { const v = byg[g]||0; return `<div class="row"><span>${gBadge(g)}</span><span style="flex:1;margin:0 10px;height:8px;background:var(--raised);border-radius:4px;overflow:hidden;position:relative"><span style="position:absolute;top:0;bottom:0;${v>=0?'left:50%':'right:50%'};width:${Math.abs(v)/mx*50}%;background:var(--${v>=0?'brand':'F'})"></span></span><b class="num ${v>=0?'up':'dn'}">${fmt(v)}</b></div>`; }).join('') + (closed.length ? '' : '<div class="empty">Close a position to see where your money actually goes.</div>');
   $('history').innerHTML = trades.length ? `<table><thead><tr><th>Time</th><th>Token</th><th>Side</th><th>Price</th><th>Amount</th><th>Fees</th><th>Impact</th><th>Grade</th><th>P&L</th></tr></thead><tbody>${trades.slice().reverse().slice(0,50).map(t => `<tr><td class="num">${new Date(t.ts).toLocaleTimeString()}</td><td class="sym">${t.sym}</td><td><span class="side ${t.dir}">${t.open?'OPEN':'CLOSE'} ${t.dir.toUpperCase()}</span></td><td class="num">${fmtP(t.price)}</td><td class="num">${fmt(t.usd)}</td><td class="num">${t.fees?fmt(t.fees):'—'}</td><td class="num">${t.impact!=null?(t.impact*100).toFixed(2)+'%':'—'}</td><td>${gBadge(t.grade)}</td><td class="num ${(t.pnl||0)>=0?'up':'dn'}">${t.pnl!=null?fmt(t.pnl):'—'}</td></tr>`).join('')}</tbody></table>` : '<div class="empty">No trades yet.</div>';
+  drawEquity();
+}
+// Portfolio for the MemeScreen wallet: balances, positions and order history come from the execution service
+let twOrdersCache = { at: 0, rows: [] };
+function renderTwPortfolio(){
+  const ps = TW.positionsList(), sp = TW.solPrice() || solUsd || 0, sol = TW.solBalance();
+  const eq = TW.total(), pnl = ps.reduce((s, p) => s + (p.pnl_usd || 0), 0), cost = ps.reduce((s, p) => s + (p.cost_usd || 0), 0);
+  const rows = twOrdersCache.rows, fills = rows.filter(o => o.status === 'confirmed'), sells = fills.filter(o => o.side === 'sell');
+  $('pkpis').innerHTML = [['Equity', fmt(eq) + ' · ◎' + sol.toFixed(4)], ['Open P&L', fmt(pnl) + (cost ? ' (' + pct(pnl / cost * 100) + ')' : '')], ['Confirmed orders', fills.length + (rows.length > fills.length ? ' of ' + rows.length : '')], ['Auto exits fired', sells.filter(o => /watcher/.test(o.source || '')).length], ['Open positions', ps.length], ['Watching', ps.filter(p => p.armed && (p.tp_px || p.sl_px)).length + ' with exits']].map(([k, v]) => `<div>${k}<b class="num">${v}</b></div>`).join('');
+  const el = $('walletCard'); if (el) { el.style.display = '';
+    el.innerHTML = `<div class="whead"><div><h2>MemeScreen wallet <span class="wtag">real · auto</span></h2><div class="hint">${esc(TW.address() || '')} · ${TW.lastUpdate() ? 'updated ' + new Date(TW.lastUpdate()).toLocaleTimeString() : 'reading…'}${TW.error() ? ' · <span class="warn">' + esc(TW.error()) + '</span>' : ''}</div></div>
+        <div class="wbtns"><button class="mini" id="twRefreshP" ${TW.reading() ? 'disabled' : ''}>${TW.reading() ? 'Reading…' : 'Refresh'}</button><button class="mini" id="twFundP">Fund</button><button class="mini" id="twWdP">Withdraw</button></div></div>
+      <div class="kpis"><div>SOL<b>◎${sol.toLocaleString(undefined, { maximumFractionDigits: 4 })}</b>${sp ? fmt(sol * sp) : ''}</div><div>Spendable<b>◎${TW.spendableSol().toFixed(4)}</b>after the fee reserve</div><div>Tokens<b>${TW.list().length}</b></div><div>Wallet value<b>${fmt(eq)}</b></div></div>
+      ${ps.length ? `<div class="tblwrap"><table><thead><tr><th>Position</th><th class="num">Qty</th><th class="num">Entry</th><th class="num">Now</th><th class="num">P&L</th><th>Exits</th></tr></thead><tbody>${ps.map(p => `<tr><td><b>${esc(p.symbol || p.mint.slice(0, 6))}</b></td><td class="num">${(+p.qty).toLocaleString(undefined, { maximumFractionDigits: 2 })}</td><td class="num">${fmtP(p.entry_px)}</td><td class="num">${p.price ? fmtP(p.price) : '—'}</td><td class="num ${p.pnl_usd >= 0 ? 'up' : 'down'}">${pct(p.pnl_pct || 0)}<div class="hint">${fmt(p.pnl_usd || 0)}</div></td><td class="hint">${p.tp_px ? 'TP ' + fmtP(p.tp_px) : ''}${p.tp_px && p.sl_px ? ' · ' : ''}${p.sl_px ? 'SL ' + fmtP(p.sl_px) : ''}${!p.tp_px && !p.sl_px ? '—' : ''}${p.armed ? ' <span class="ok">auto</span>' : (p.hit ? ' fired ' + p.hit.toUpperCase() : '')}</td></tr>`).join('')}</tbody></table></div>` : '<div class="hint">No open positions in this wallet.</div>'}
+      <div class="hint" style="margin-top:8px">Orders execute on the MemeScreen server with this wallet's key; stop-loss and take-profit are watched every 3 seconds and sell by themselves.</div>`;
+    $('twRefreshP').onclick = async () => { await TW.refresh(); renderPortfolio(); }; $('twFundP').onclick = () => openTwModal('fund'); $('twWdP').onclick = () => openTwModal('withdraw'); }
+  $('bygrade').innerHTML = '<div class="hint">Grade breakdown applies to paper accounts. Live orders are listed below.</div>';
+  $('history').innerHTML = rows.length ? `<table><thead><tr><th>Time</th><th>Token</th><th>Side</th><th>Size</th><th>Price</th><th>Status</th><th>Source</th><th></th></tr></thead><tbody>${rows.slice(0, 50).map(o => `<tr><td class="num">${new Date(o.created_at).toLocaleString()}</td><td class="sym">${esc(o.symbol || o.mint.slice(0, 6))}</td><td><span class="side ${o.side === 'buy' ? 'long' : 'short'}">${o.side.toUpperCase()}</span></td><td class="num">${o.side === 'buy' ? '◎' + (+o.sol_in || 0).toFixed(4) + ' → ' + (+o.token_out || 0).toLocaleString(undefined, { maximumFractionDigits: 2 }) : (+o.token_in || 0).toLocaleString(undefined, { maximumFractionDigits: 2 }) + ' → ◎' + (+o.sol_out || 0).toFixed(4)}</td><td class="num">${o.price_usd ? fmtP(o.price_usd) : '—'}</td><td>${o.status === 'confirmed' ? '<span class="ok">confirmed</span>' : '<span class="warn">' + esc(o.status) + (o.error ? ' · ' + esc(String(o.error).slice(0, 60)) : '') + '</span>'}</td><td class="hint">${/watcher_sl/.test(o.source || '') ? 'auto stop-loss' : /watcher_tp/.test(o.source || '') ? 'auto take-profit' : 'you'}</td><td>${o.tx_sig && !/^FAKE/.test(o.tx_sig) ? `<a href="${TW.explorer(o.tx_sig)}" target="_blank" rel="noopener">Solscan</a>` : ''}</td></tr>`).join('')}</tbody></table>` : '<div class="hint">No live orders yet.</div>';
+  if (Date.now() - twOrdersCache.at > 10000) { twOrdersCache.at = Date.now(); TW.orders().then(r => { twOrdersCache.rows = r || []; if ($('v-portfolio')?.classList.contains('on') && liveMode && liveSrc === 'tw') renderTwPortfolio(); }).catch(() => {}); }
   drawEquity();
 }
 function drawEquity(){ const c = $('eqc'); if (!c) return; const dpr = devicePixelRatio||1, W = c.clientWidth||600, H = 160; c.width = W*dpr; c.height = H*dpr; const ctx = c.getContext('2d'); ctx.scale(dpr,dpr); ctx.clearRect(0,0,W,H); const h = equityLog.map(x=>x[1]); if (h.length < 2) { ctx.fillStyle='#5A6575'; ctx.font='13px sans-serif'; ctx.fillText('Builds as you trade…', 14, 80); return; } const B=baseline(); const min = Math.min(...h, B), max = Math.max(...h, B), r = (max-min)||1; const y = v => 10 + (max-v)/r*(H-20); ctx.setLineDash([3,3]); ctx.strokeStyle='#2A3341'; ctx.beginPath(); ctx.moveTo(0,y(B)); ctx.lineTo(W,y(B)); ctx.stroke(); ctx.setLineDash([]); ctx.beginPath(); h.forEach((v,i)=>{ const x = i/(h.length-1)*(W-10)+5; i?ctx.lineTo(x,y(v)):ctx.moveTo(x,y(v)); }); ctx.strokeStyle = h[h.length-1] >= B ? '#22E4A0' : '#F0483E'; ctx.lineWidth = 2; ctx.stroke(); }
@@ -517,6 +537,7 @@ function makeKCChart(){
     }
   });
   try { KC.setPriceVolumePrecision(0, 2); } catch {}
+  window.__KC = KC;   // for the test harness and console debugging
   try { const kcEl2=document.getElementById('kc'); if(kcEl2 && window.ResizeObserver){ new ResizeObserver(()=>{ try{ if(KC&&KC.resize) KC.resize(); }catch{} }).observe(kcEl2); } } catch {}
   // volume sub-pane
   const phone = document.documentElement.classList.contains('mobile');
@@ -598,8 +619,10 @@ DT.init({ chart: () => KC, token: () => selected, supply: () => tokenSupply(sele
 let msLineReg=false;
 function ensureMsLine(){ if(msLineReg||!hasKC()) return; msLineReg=true; try { klinecharts.registerOverlay({ name:'msLine', totalStep:2, needDefaultPointFigure:false, needDefaultXAxisFigure:false, needDefaultYAxisFigure:false,
   createPointFigures: ({ overlay, coordinates, bounding }) => { if(!coordinates.length) return []; const d=overlay.extendData||{}; const raw=coordinates[0].y; const H=bounding.height, W=bounding.width; const off = raw<8 ? 'up' : raw>H-8 ? 'down' : null; const y = off==='up'?8 : off==='down'?H-8 : raw; const text=(d.text||'')+(off==='up'?'  ▲ above view':off==='down'?'  ▼ below view':'');
-    return [ { type:'line', attrs:{ coordinates:[{x:0,y},{x:W,y}] }, styles:{ style:'dashed', dashedValue:[5,4], color:d.color, size:1 }, ignoreEvent:true },
-             { type:'text', attrs:{ x:W-6, y: off==='up'? y+2 : y-2, text, align:'right', baseline: off==='up'?'top':'bottom' }, styles:{ style:'fill', color:'#0A0D12', size:11, weight:'600', family:'system-ui,-apple-system,Segoe UI,sans-serif', backgroundColor:d.color, borderRadius:3, paddingLeft:5, paddingRight:5, paddingTop:3, paddingBottom:3 }, ignoreEvent:true } ]; } }); } catch(e){ console.warn('msLine', e); } }
+    const figs = [ { type:'line', attrs:{ coordinates:[{x:0,y},{x:W,y}] }, styles:{ style:'dashed', dashedValue:[5,4], color:d.color, size:1 }, ignoreEvent:true } ];
+    if (d.drag) figs.push({ type:'rect', attrs:{ x:0, y:y-12, width:W, height:24 }, styles:{ style:'fill', color:'rgba(255,255,255,0.001)' } });   // invisible grab zone (a rect hit-tests by area; a line only by a 2px tolerance): drag the level with a finger
+    return figs.concat([
+             { type:'text', attrs:{ x:W-6, y: off==='up'? y+2 : y-2, text: text + (d.drag ? '  ⇕' : ''), align:'right', baseline: off==='up'?'top':'bottom' }, styles:{ style:'fill', color:'#0A0D12', size:11, weight:'600', family:'system-ui,-apple-system,Segoe UI,sans-serif', backgroundColor:d.color, borderRadius:3, paddingLeft:5, paddingRight:5, paddingTop:3, paddingBottom:3 }, ignoreEvent:true } ]); } }); } catch(e){ console.warn('msLine', e); } }
 function applyDrawings(force){
   if (!KC || !selected) return;
   // signature of what SHOULD be drawn — skip redraw if unchanged (so a drag isn't destroyed mid-move)
@@ -610,17 +633,28 @@ function applyDrawings(force){
   try { (KC._mslines||[]).forEach(id=>{ try{ KC.removeOverlay(id); }catch{} }); } catch {}
   KC._mslines = [];
     ensureMsLine(); const sup=tokenSupply(selected);
-  const line=(price,color,text)=>{ try { const id=KC.createOverlay({ name:'msLine', points:[{ value:price*sup }], lock:true, extendData:{ color, text } }); if(id) KC._mslines.push(id); } catch {} };
+  // a draggable level: while pressed, the line follows the finger (pixel → value through the chart's own axis); on release the new price is applied
+  const line=(price,color,text,onMove)=>{ try { const id=KC.createOverlay({ name:'msLine', points:[{ value:price*sup }], lock:!onMove, extendData:{ color, text, drag: !!onMove },
+      onPressedMoving: onMove ? (e => { try { if (e.y == null) return; const c = KC.convertFromPixel({ x: e.x, y: e.y }, { paneId: 'candle_pane' }); const v = Array.isArray(c) ? c[0]?.value : c?.value; if (v > 0) { KC._dragVal = v; KC.overrideOverlay({ id: e.overlay.id, points: [{ value: v }] }); } } catch {} return true; }) : undefined,
+      onPressedMoveEnd: onMove ? (e => { try { const raw = KC._dragVal || e.overlay?.points?.[0]?.value || 0; KC._dragVal = null; const v = raw / (sup || 1); if (v > 0) onMove(v); } catch {} }) : undefined }); if(id) KC._mslines.push(id); } catch {} };
   for (const pos of positions.filter(p=>p.addr===selected.addr)){
     const dir = pos.side==='long'?1:-1, usdAt = px => (px-pos.entry)*dir*pos.qty;
     line(pos.entry, '#9AA3B2', `${pos.side.toUpperCase()} entry ${fmtP(pos.entry)}`);
-    if (pos.tp) line(pos.tp, '#26A69A', `TP ${fmtP(pos.tp)} · +${fmt(Math.abs(usdAt(pos.tp))).replace('-','')}`);
-    if (pos.sl) line(pos.sl, '#EF5350', `SL ${fmtP(pos.sl)} · −${fmt(Math.abs(usdAt(pos.sl))).replace('-','')}`);
+    if (pos.tp) line(pos.tp, '#26A69A', `TP ${fmtP(pos.tp)} · +${fmt(Math.abs(usdAt(pos.tp))).replace('-','')}`, v => { pos.tp = v; save(); renderPositions(); toast('Take-profit moved to ' + fmtP(v)); applyDrawings(true); });
+    if (pos.sl) line(pos.sl, '#EF5350', `SL ${fmtP(pos.sl)} · −${fmt(Math.abs(usdAt(pos.sl))).replace('-','')}`, v => { pos.sl = v; save(); renderPositions(); toast('Stop-loss moved to ' + fmtP(v)); applyDrawings(true); });
   }
   for (const o of orders.filter(o=>o.addr===selected.addr)) line(o.trigger, '#F5C542', `${o.kind} ${o.dir} ${fmtP(o.trigger)} · ${fmt(o.usd)}`);
-  if (lp) { line(lp.entry, '#22E4A0', `${liveSrc==='tw'?'AUTO':'LIVE'} entry ${fmtP(lp.entry)} · ◎${(+lp.solIn).toFixed(3)}`);
-    if (lp.tp) line(lp.tp, '#26A69A', `Live TP ${fmtP(lp.tp)} · +${fmt(Math.abs((lp.tp - lp.entry) * lp.qty))}`);
-    if (lp.sl) line(lp.sl, '#EF5350', `Live SL ${fmtP(lp.sl)} · −${fmt(Math.abs((lp.entry - lp.sl) * lp.qty))}`); }
+  if (lp) { line(lp.entry, '#22E4A0', `${liveSrc==='tw'?'AUTO':'LIVE'} entry ${fmtP(lp.entry)} · ◎${(+lp.solIn).toFixed(4)}`);
+    const moveLive = (which, v) => {
+      const tpPct = which === 'tp' ? (v / lp.entry - 1) * 100 : (lp.tp ? (lp.tp / lp.entry - 1) * 100 : null);
+      const slPct = which === 'sl' ? (1 - v / lp.entry) * 100 : (lp.sl ? (1 - lp.sl / lp.entry) * 100 : null);
+      if (which === 'tp' && v <= lp.entry) { toast('Take-profit must be above entry'); applyDrawings(true); return; }
+      if (which === 'sl' && v >= lp.entry) { toast('Stop-loss must be below entry'); applyDrawings(true); return; }
+      if (liveSrc === 'tw') { TW.setExits({ mint: selected.addr, tp: tpPct, sl: slPct }).then(() => { toast((which==='tp'?'Take-profit':'Stop-loss') + ' moved to ' + fmtP(v) + ' · server re-armed'); }).catch(e => { toast('Exits: ' + (e.message || e)); applyDrawings(true); }); }
+      else { const p = liveFor(selected.addr); if (p) { p[which] = v; p.hit = null; saveLive(); renderPositions(); applyDrawings(true); toast((which==='tp'?'Take-profit':'Stop-loss') + ' moved to ' + fmtP(v)); } }
+    };
+    if (lp.tp) line(lp.tp, '#26A69A', `${liveSrc==='tw'?'Auto':'Live'} TP ${fmtP(lp.tp)} · +${fmt(Math.abs((lp.tp - lp.entry) * lp.qty))}`, v => moveLive('tp', v));
+    if (lp.sl) line(lp.sl, '#EF5350', `${liveSrc==='tw'?'Auto':'Live'} SL ${fmtP(lp.sl)} · −${fmt(Math.abs((lp.entry - lp.sl) * lp.qty))}`, v => moveLive('sl', v)); }
 }
 // ---------- tick engine + targeted DOM updates ----------
 function tick(){
@@ -972,7 +1006,7 @@ function checkLiveExits(){
 function liveChanged(){
   renderAccountUI(); if (liveMode && !LW().connected()) setLiveMode(false);
   if (!liveMode) return;
-  updateLive(); if (bottomTab==='positions') renderPositions();
+  updateLive(); if (bottomTab==='positions') renderPositions(); if ($('v-portfolio')?.classList.contains('on')) renderPortfolio();
   const key = LW().solBalance() + '|' + LW().list().length + '|' + LW().error() + '|' + (liveSrc==='tw' ? JSON.stringify(TW.positionsList().map(p=>[p.mint,p.qty,p.tp_px,p.sl_px,p.armed,p.price])) : '');
   if (key !== lastWalKey) { lastWalKey = key; if (selected) { renderDetail(); try { applyDrawings(true); } catch {} } }
 }
