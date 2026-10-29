@@ -85,7 +85,10 @@ function sqlite(file){
 
 async function postgres(url){
   const { default: pg } = await import('pg');
-  const pool = new pg.Pool({ connectionString: url, ssl: /localhost|127\.0\.0\.1/.test(url) ? false : { rejectUnauthorized: false } });
+  // SSL only where the host needs it: public hosts (render.com, railway, amazonaws, sslmode=require). Render's internal
+  // URLs (dpg-xxxx-a, no domain) and localhost speak plain Postgres and refuse SSL.
+  const needSsl = /sslmode=require|\.render\.com|railway|amazonaws|neon\.tech|supabase/.test(url) && !/localhost|127\.0\.0\.1/.test(url);
+  const pool = new pg.Pool({ connectionString: url, ssl: needSsl ? { rejectUnauthorized: false } : false });
   const conv = sql => { let i = 0; return sql.replace(/\?/g, () => '$' + (++i)); };
   for (const s of SCHEMA) await pool.query(s);
   return {
