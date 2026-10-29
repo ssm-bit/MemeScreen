@@ -4,6 +4,7 @@
 import * as DT from './drawtools.js';
 import * as SCR from './screener.js';
 import * as WAL from './wallet.js';
+import * as TW from './twallet.js';   // MemeScreen trading wallet (server-held key, auto exits)
 import * as FEED from './feed.js';
 import * as LIVE from './live.js';
 import { createBackend, session, settings as backendSettings, saveSettings as saveBackendSettings, resetSettings as resetBackendSettings, isAuthError } from './backend.js';
@@ -34,8 +35,10 @@ const signedIn = () => !!TOKEN && !guest;
 
 // ---------- constants (restored) ----------
 const START = 10000, PLATFORM = 0.01, LP = 0.003, NET = 0.10, GRADES = ['F','D','C','B','A'];
-let liveMode = false;   // true = the connected Phantom wallet is the active account (see setLiveMode)
-const BUILD = '2026-10-15k';   // shown in Settings and under the login form, so a phone on an old build is easy to spot
+let liveMode = false;   // true = a live wallet is the active account (see setLiveMode)
+let liveSrc = 'phantom';   // which live wallet: 'phantom' (user signs each order) or 'tw' (MemeScreen wallet, server executes)
+const LW = () => (liveSrc === 'tw' ? TW : WAL);
+const BUILD = '2026-10-29a';   // shown in Settings and under the login form, so a phone on an old build is easy to spot
 const ICON = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="20" fill="#0A0D12"/><circle cx="50" cy="50" r="36" fill="none" stroke="#22E4A0" stroke-width="6"/><path d="M57 31L70 26" fill="none" stroke="#22E4A0" stroke-width="5" stroke-linecap="round"/><rect x="31" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><rect x="59" y="38" width="10" height="13" rx="2.5" fill="#22E4A0"/><path d="M33 66Q50 68 67 58" fill="none" stroke="#22E4A0" stroke-width="5.5" stroke-linecap="round"/></svg>');
 
 // ---------- global news feed (ticker + alerts) ----------
@@ -583,7 +586,7 @@ function applyIndicators(){
 }
 // ---------- drawings (native overlays + TP/SL/order lines) ----------
 SCR.init({ tokens: () => tokens, select: t => { selected = t; show('trade'); render(); document.querySelector('.m-segs [data-seg=chart]')?.click(); }, toast, fireAlert, saveScreens: () => save('prefs'), signedIn });
-WAL.init({ grade, fetchPairs, gBadge, toast, openExternal, fmt, fmtP, fmtK, solUsd: () => solUsd, savePrefs: () => save('prefs'), backendRpc: (m, p) => backend.rpc(m, p), onChange: () => { renderAccountUI(); if (liveMode && !WAL.connected()) setLiveMode(false); if (liveMode) { updateLive(); if (bottomTab==='positions') renderPositions(); const key = WAL.solBalance() + '|' + WAL.list().length + '|' + WAL.error(); if (key !== lastWalKey) { lastWalKey = key; if (selected) renderDetail(); } } }, select: t => { const have = tokens.find(x => x.addr === t.addr); if (!have) { t.grade = grade(t); tokens.push(t); } selected = have || t; show('trade'); render(); document.querySelector('.m-segs [data-seg=chart]')?.click(); } });
+WAL.init({ grade, fetchPairs, gBadge, toast, openExternal, fmt, fmtP, fmtK, solUsd: () => solUsd, savePrefs: () => save('prefs'), backendRpc: (m, p) => backend.rpc(m, p), onChange: liveChanged, select: t => { const have = tokens.find(x => x.addr === t.addr); if (!have) { t.grade = grade(t); tokens.push(t); } selected = have || t; show('trade'); render(); document.querySelector('.m-segs [data-seg=chart]')?.click(); } });
 FEED.init({ sol: () => solUsd, price: (t, px) => { t.target = px; t.feedAt = Date.now(); } });   // tick() eases price → target, which also refreshes the header, list and candle
 // the inline [data-legal] handler in index.html only switches the view; the buttons on that page are wired here
 document.addEventListener('click', e => { if (e.target.closest && e.target.closest('[data-legal]')) setTimeout(renderLegal, 0); });
@@ -600,7 +603,7 @@ function ensureMsLine(){ if(msLineReg||!hasKC()) return; msLineReg=true; try { k
 function applyDrawings(force){
   if (!KC || !selected) return;
   // signature of what SHOULD be drawn — skip redraw if unchanged (so a drag isn't destroyed mid-move)
-  const lp = liveMode ? liveFor(selected.addr) : null;
+  const lp = liveMode ? livePosView(selected.addr) : null;
   const sig = JSON.stringify(positions.filter(p=>p.addr===selected.addr).map(p=>[p.entry,p.tp,p.sl]).concat(orders.filter(o=>o.addr===selected.addr).map(o=>[o.trigger,o.kind])))+'|'+selected.addr+'|'+(lp ? [lp.entry, lp.tp, lp.sl].join(',') : '')+'|'+liveMode;
   if (!force && KC._drawSig === sig) return;
   KC._drawSig = sig;
@@ -615,7 +618,7 @@ function applyDrawings(force){
     if (pos.sl) line(pos.sl, '#EF5350', `SL ${fmtP(pos.sl)} · −${fmt(Math.abs(usdAt(pos.sl))).replace('-','')}`);
   }
   for (const o of orders.filter(o=>o.addr===selected.addr)) line(o.trigger, '#F5C542', `${o.kind} ${o.dir} ${fmtP(o.trigger)} · ${fmt(o.usd)}`);
-  if (lp) { line(lp.entry, '#22E4A0', `LIVE entry ${fmtP(lp.entry)} · ◎${lp.solIn}`);
+  if (lp) { line(lp.entry, '#22E4A0', `${liveSrc==='tw'?'AUTO':'LIVE'} entry ${fmtP(lp.entry)} · ◎${(+lp.solIn).toFixed(3)}`);
     if (lp.tp) line(lp.tp, '#26A69A', `Live TP ${fmtP(lp.tp)} · +${fmt(Math.abs((lp.tp - lp.entry) * lp.qty))}`);
     if (lp.sl) line(lp.sl, '#EF5350', `Live SL ${fmtP(lp.sl)} · −${fmt(Math.abs((lp.entry - lp.sl) * lp.qty))}`); }
 }
@@ -629,7 +632,7 @@ function tick(){
 }
 function updateLive(){
   const B=baseline(); const eq = equity(), pnl = eq - B; const setT=(id,v)=>{ const e=$(id); if(e) e.textContent=v; }; const setC=(id,c)=>{ const e=$(id); if(e) e.className=c; };
-  if (liveMode) { setT('cash', '◎' + WAL.solBalance().toFixed(3)); setT('equity', fmt(WAL.total())); setT('pnl', 'live · ' + WAL.list().length + ' token' + (WAL.list().length===1?'':'s')); setC('pnl','num'); setT('wk','◎' + WAL.solBalance().toFixed(2) + ' free'); } else {
+  if (liveMode) { const W = LW(); setT('cash', '◎' + W.solBalance().toFixed(3)); setT('equity', fmt(W.total())); setT('pnl', (liveSrc==='tw' ? 'auto · ' : 'live · ') + W.list().length + ' token' + (W.list().length===1?'':'s')); setC('pnl','num'); setT('wk','◎' + W.solBalance().toFixed(2) + ' free'); } else {
   setT('cash',fmt(cash)); setT('equity',fmt(eq)); setT('pnl',fmt(pnl)+' ('+pct(pnl/B*100)+')'); setC('pnl','num '+(pnl>=0?'up':'dn')); const wr=(eq-weekStartEq)/weekStartEq*100; setT('wk',pct(wr)); setC('wk','num '+(wr>=0?'up':'dn')); }
   for (const t of tokens) { const el = document.querySelector(`tr[data-a="${t.addr}"] .pr`); const mc = liveMcap(t); if (el && el.textContent !== fmtK(mc)) { el.textContent = fmtK(mc); el.classList.remove('fu','fd'); void el.offsetWidth; el.classList.add(t.price >= (lastPrices[t.addr] ?? t.price) ? 'fu' : 'fd'); } lastPrices[t.addr] = t.price; }
   if (selected) { const pe = document.querySelector('.t-center .price'); if (pe) pe.firstChild.textContent = fmtP(selected.price) + ' '; if (selected.lastTrade && Date.now()-selected.lastTrade.at < 4000) { const lt = $('lasttrade'); if (lt) lt.innerHTML = `<span class="${selected.lastTrade.side==='buy'?'up':'dn'}">${selected.lastTrade.side.toUpperCase()}</span> ${fmt(selected.lastTrade.usd)} · ${new Date(selected.lastTrade.at).toLocaleTimeString()}`; } }
@@ -791,24 +794,26 @@ function openWalletDeposit(){
 { const m=$('walletDepModal'); if(m){ m.onclick=e=>{ if(e.target===m) m.style.display='none'; }; const c=$('wdClose'); if(c) c.onclick=()=>m.style.display='none'; } }
 // ---------- paper vs live wallet ----------
 // liveMode = the header, ticket and positions show the connected Phantom wallet; paper accounts are untouched.
-function setLiveMode(on){
-  if (on && !WAL.connected()) { toast('Connect Phantom first (Broker)'); on = false; }
-  if (liveMode === on) { renderAccountUI(); return; }
-  liveMode = on;
-  renderAccountUI(); render(); updateLive(); if ($('v-portfolio')?.classList.contains('on')) renderPortfolio();
-  toast(on ? 'Live wallet · orders go to Phantom, test mode unless you tick Send for real' : 'Back to paper · ' + activeAcct);
+function setLiveMode(on, src){
+  if (on) { src = src || liveSrc; const W = src === 'tw' ? TW : WAL; if (!W.connected()) { toast(src === 'tw' ? 'Open your MemeScreen wallet first (Broker)' : 'Connect Phantom first (Broker)'); on = false; } }
+  if (liveMode === on && (!on || src === liveSrc)) { renderAccountUI(); return; }
+  liveMode = on; if (on) liveSrc = src; lastWalKey = ''; lvQuote = null; lvStatusHtml = '';
+  renderAccountUI(); render(); updateLive(); if ($('v-portfolio')?.classList.contains('on')) renderPortfolio(); try { applyDrawings(true); } catch {}
+  toast(on ? (liveSrc === 'tw' ? 'MemeScreen wallet · orders execute on the server; stop-loss and take-profit sell by themselves' : 'Live wallet · orders go to Phantom, test mode unless you tick Send for real') : 'Back to paper · ' + activeAcct);
 }
 function renderAccountUI(){
   const sel = $('acctSel');
-  if (sel){ sel.innerHTML = accounts.map(a=>`<option value="${esc(a.id)}" ${!liveMode && a.id===activeAcct?'selected':''}>${esc(a.id)} · ${fmt(a.size).replace('.00','')} · paper</option>`).join('') + (WAL.connected() ? `<option value="__wallet" ${liveMode?'selected':''}>Phantom ${esc(WAL.short(WAL.address()))} · live</option>` : '');
-    sel.onchange = () => { if (sel.value === '__wallet') setLiveMode(true); else { if (liveMode) setLiveMode(false); switchAccount(sel.value); } }; }
+  if (sel){ sel.innerHTML = accounts.map(a=>`<option value="${esc(a.id)}" ${!liveMode && a.id===activeAcct?'selected':''}>${esc(a.id)} · ${fmt(a.size).replace('.00','')} · paper</option>`).join('') + (WAL.connected() ? `<option value="__wallet" ${liveMode&&liveSrc==='phantom'?'selected':''}>Phantom ${esc(WAL.short(WAL.address()))} · live</option>` : '') + (TW.connected() ? `<option value="__tw" ${liveMode&&liveSrc==='tw'?'selected':''}>MemeScreen wallet ${esc(TW.short(TW.address()))} · auto</option>` : '');
+    sel.onchange = () => { if (sel.value === '__wallet') setLiveMode(true, 'phantom'); else if (sel.value === '__tw') setLiveMode(true, 'tw'); else { if (liveMode) setLiveMode(false); switchAccount(sel.value); } }; }
+  const tu=$('twUrl'); if(tu && document.activeElement!==tu) tu.value = TW.url();
+  const ts=$('twstate'); if(ts){ const h = TW.lastHealth(); ts.innerHTML = !TW.configured() ? 'No execution service set. Paste the URL of your deployed memescreen/exec service (see memescreen/exec/README.md) and press Save.' : (TW.connected() ? `<span class="ok">Wallet ${esc(TW.short(TW.address()))} open · ◎${TW.solBalance().toFixed(4)}</span>${liveMode&&liveSrc==='tw'?' · active':''}` : 'Service set. Open the wallet from the Broker window.') + (h ? ` · service ${h.ok?'<span class="ok">online</span>':'<span class="warn">down</span>'}, watcher ${h.watcher?.running?'on':'off'}${h.watcher?.lastTickAt?', last check '+Math.round((Date.now()-h.watcher.lastTickAt)/1000)+'s ago':''}` : ''); }
   const rb=$('reset'); if(rb) rb.textContent='Reset "'+activeAcct+'" to '+fmt(acctSize()).replace('.00','');
   const dp2=$('depositBtn2'); if(dp2) dp2.onclick=()=>$('depositBtn')?.click();
   const bv=$('buildTag'); if(bv) bv.textContent='build '+BUILD;
   const bs=$('brokerStatus'), cb2=$('connectBroker'); if(bs){ bs.innerHTML = WAL.connected() ? `<span class="ok">Phantom ${esc(WAL.short(WAL.address()))} connected.</span> ${liveMode ? 'It is the active account: the Trade ticket sends live orders through Jupiter.' : 'Paper is active; pick the wallet in the header dropdown to trade live.'} Other brokers are listed but not live yet.` : 'Phantom connects for real (read holdings, live orders through Jupiter). Other brokers are listed but not live yet.'; if (cb2) cb2.textContent = WAL.connected() ? 'Manage broker' : 'Connect broker'; }
   const wl=$('walletLine'); if(wl){ wl.innerHTML = WAL.connected() ? `Phantom <b>${esc(WAL.short(WAL.address()))}</b> connected · ${liveMode?'active (live)':'paper is active'} <button class="mini" id="wlDisc">Disconnect Phantom</button>` : 'No wallet connected. <button class="mini" id="wlConn">Connect Phantom</button>'; const d=$('wlDisc'); if(d) d.onclick=async ()=>{ await WAL.disconnect(true); if (liveMode) setLiveMode(false); renderAccountUI(); toast('Phantom disconnected'); }; const c=$('wlConn'); if(c) c.onclick=openBrokerModal; }
-  const dp=$('depositBtn'); if(dp) dp.onclick=()=>{ if (liveMode) return openWalletDeposit(); const v=+prompt('Deposit how much paper money into "'+activeAcct+'"? (e.g. 100, 500, 5000)','500'); if(!(v>0)) return; deposit(v); };
-  const wd=$('withdrawBtn'); if(wd) wd.onclick=()=>{ if (liveMode) return toast('Withdraw from Phantom itself — MemeScreen never moves wallet funds'); const v=+prompt('Withdraw how much paper money from "'+activeAcct+'"? Available cash: '+fmt(cash),'100'); if(!(v>0)) return; if(v>cash) return toast('Only '+fmt(cash)+' is free to withdraw'); deposit(-v); };
+  const dp=$('depositBtn'); if(dp) dp.onclick=()=>{ if (liveMode) return liveSrc==='tw' ? openTwModal('fund') : openWalletDeposit(); const v=+prompt('Deposit how much paper money into "'+activeAcct+'"? (e.g. 100, 500, 5000)','500'); if(!(v>0)) return; deposit(v); };
+  const wd=$('withdrawBtn'); if(wd) wd.onclick=()=>{ if (liveMode) return liveSrc==='tw' ? openTwModal('withdraw') : toast('Withdraw from Phantom itself — MemeScreen never moves wallet funds'); const v=+prompt('Withdraw how much paper money from "'+activeAcct+'"? Available cash: '+fmt(cash),'100'); if(!(v>0)) return; if(v>cash) return toast('Only '+fmt(cash)+' is free to withdraw'); deposit(-v); };
   const mgr = $('acctMgr');
   if (mgr){
     mgr.innerHTML = accounts.map(a=>{ const st = a.id===activeAcct ? null : store.get(acctKey(a.id)); const open = a.id===activeAcct ? positions.length : (st?.positions||[]).length; return `<div class="row acctrow"><span><b>${esc(a.id)}</b>${a.id===activeAcct?' <span class="ok">(active)</span>':''}${a.id==='main'?' <span class="hint">· competes on the leaderboard</span>':''}<div class="hint">start ${fmt(a.size).replace('.00','')} · ${open} open position${open===1?'':'s'}</div></span><span class="acctbtns">${a.id!=='main'?`<button class="mini" data-del="${esc(a.id)}">Delete</button>`:''}${a.id!==activeAcct?`<button class="mini primary" data-sw="${esc(a.id)}">Switch</button>`:''}</span></div>`; }).join('')
@@ -964,14 +969,36 @@ function checkLiveExits(){
     if (WAL.connected()) { selected = t; lvSide = 'sell'; lvPct = 100; lvQuote = null; setLiveMode(true); show('trade'); renderDetail(); document.querySelector('.m-segs [data-seg=chart]')?.click(); }
   }
 }
+function liveChanged(){
+  renderAccountUI(); if (liveMode && !LW().connected()) setLiveMode(false);
+  if (!liveMode) return;
+  updateLive(); if (bottomTab==='positions') renderPositions();
+  const key = LW().solBalance() + '|' + LW().list().length + '|' + LW().error() + '|' + (liveSrc==='tw' ? JSON.stringify(TW.positionsList().map(p=>[p.mint,p.qty,p.tp_px,p.sl_px,p.armed,p.price])) : '');
+  if (key !== lastWalKey) { lastWalKey = key; if (selected) { renderDetail(); try { applyDrawings(true); } catch {} } }
+}
+TW.init({ grade, fetchPairs, gBadge, toast, fmt, fmtP, fmtK, solUsd: () => solUsd, onChange: liveChanged });
+// one view of "my live position in this token" for either wallet
+function livePosView(addr){
+  if (liveSrc === 'tw') { const p = TW.positionFor(addr); if (!p) return null; return { entry: p.entry_px, qty: p.qty, tp: p.tp_px, sl: p.sl_px, solIn: p.sol_in, px: p.price, usd: p.pnl_usd, pct: p.pnl_pct, hit: p.hit, armed: !!p.armed }; }
+  const p = liveFor(addr); if (!p) return null; const r = livePnl(p); return { entry: p.entry, qty: p.qty, tp: p.tp, sl: p.sl, solIn: p.solIn, px: r.px, usd: r.usd, pct: r.pct, hit: p.hit, armed: !p.hit };
+}
+function openTwModal(kind){
+  const m = $('twModal'); if (!m) return; if (!TW.connected()) return toast('Open your MemeScreen wallet first (Broker)');
+  $('twTitle').textContent = kind === 'fund' ? 'Fund your MemeScreen wallet' : 'Withdraw to Phantom';
+  const b = $('twBody'); b.innerHTML = kind === 'fund' ? TW.fundingHtml() : TW.withdrawHtml(WAL.address() || '');
+  if (kind === 'fund') TW.wireFunding(b); else TW.wireWithdraw(b, () => { updateLive(); });
+  m.style.display = 'flex';
+}
+{ const m=$('twModal'); if(m){ m.onclick=e=>{ if(e.target===m) m.style.display='none'; }; const c=$('twClose'); if(c) c.onclick=()=>m.style.display='none'; } }
+{ const sv=$('twUrlSave'); if(sv) sv.onclick=async ()=>{ TW.setUrl($('twUrl').value); const h = await TW.health(); toast(h ? 'Service OK · watcher ' + (h.watcher?.running ? 'on' : 'off') : 'Service not reachable at that URL'); renderAccountUI(); }; const op=$('twOpen'); if(op) op.onclick=()=>openBrokerModal(); }
 const FEE_RESERVE = 0.012;   // SOL kept back for network + priority fees and the wrapped-SOL account
 function renderLiveTicket(t, op){
-  const h = WAL.list().find(x => x.mint === t.addr); const bal = WAL.solBalance(); const sp = WAL.solPrice() || solUsd || 0;
+  const W = LW(), tw = liveSrc === 'tw'; const h = W.list().find(x => x.mint === t.addr); const bal = W.solBalance(); const sp = W.solPrice() || solUsd || 0;
   const keepQ = op.dataset.qaddr === t.addr && op.dataset.qside === lvSide ? lvQuote : null; lvQuote = keepQ; op.dataset.qaddr = t.addr; op.dataset.qside = lvSide;
   op.innerHTML = `
     <div class="ticket live">
-      <div class="livehead"><span class="livetag">LIVE</span> Phantom ${esc(WAL.short(WAL.address()))} · ◎${bal.toFixed(3)}${sp?' · '+fmt(bal*sp):''} <button class="mini" id="lvRefresh" ${WAL.reading()?'disabled':''} style="margin-left:auto">${WAL.reading()?'Reading…':'Refresh'}</button></div>
-      ${WAL.error() ? `<div class="hint warn">${esc(WAL.error())}</div>` : ''}
+      <div class="livehead"><span class="livetag">${tw?'AUTO':'LIVE'}</span> ${tw?'MemeScreen wallet':'Phantom'} ${esc(W.short(W.address()))} · ◎${bal.toFixed(3)}${sp?' · '+fmt(bal*sp):''} <button class="mini" id="lvRefresh" ${W.reading()?'disabled':''} style="margin-left:auto">${W.reading()?'Reading…':'Refresh'}</button></div>
+      ${W.error() ? `<div class="hint warn">${esc(W.error())}</div>` : ''}
       <div class="ordtabs"><button class="ordtab ${lvSide==='buy'?'on':''}" data-ls="buy">Buy</button><button class="ordtab ${lvSide==='sell'?'on':''}" data-ls="sell">Sell</button></div>
       ${lvSide==='buy' ? `
       <div class="ordlabel">Amount <span style="color:var(--t3)">· ◎${lvSol} ${sp?'≈ '+fmt(lvSol*sp):''}</span></div>
@@ -981,26 +1008,26 @@ function renderLiveTicket(t, op){
       <div class="exits">
         <div class="exitrow"><label class="exitchk"><input type="checkbox" id="lvUseTP" ${lvUseTP?'checked':''}> Take profit</label><div class="exitfield tp"><span>+</span><input class="num" id="lvTPin" type="number" min="1" max="10000" inputmode="decimal" value="${lvTP}" ${lvUseTP?'':'disabled'}><span>%</span></div></div>
         <div class="exitrow"><label class="exitchk"><input type="checkbox" id="lvUseSL" ${lvUseSL?'checked':''}> Stop loss</label><div class="exitfield sl"><span>−</span><input class="num" id="lvSLin" type="number" min="1" max="99" inputmode="decimal" value="${lvSL}" ${lvUseSL?'':'disabled'}><span>%</span></div></div>
-        <div class="hint">Exits are watched by the app, not the chain: when the level hits you get an alert and the sell ticket opens — you still approve the sale in Phantom.</div>
+        <div class="hint">${tw ? 'Exits are watched by the MemeScreen server every 3 seconds, 24/7: when a level hits it sells by itself and sends you a push.' : 'Exits are watched by the app, not the chain: when the level hits you get an alert and the sell ticket opens — you still approve the sale in Phantom.'}</div>
       </div>` : `
       <div class="ordlabel">You hold <span style="color:var(--t3)">· ${h ? h.amount.toLocaleString(undefined,{maximumFractionDigits:2})+' '+esc(t.sym)+(h.price?' ≈ '+fmt(h.value):'') : 'none of '+esc(t.sym)}</span></div>
-      ${(() => { const p = liveFor(t.addr); if (!p) return ''; const r = livePnl(p); return `<div class="hint">Entry ${fmtP(p.entry)} · now ${fmtP(r.px)} · <b class="${r.usd>=0?'up':'down'}">${pct(r.pct)} (${fmt(r.usd)})</b>${p.tp?' · TP '+fmtP(p.tp):''}${p.sl?' · SL '+fmtP(p.sl):''}</div>`; })()}
+      ${(() => { const v = livePosView(t.addr); if (!v) return ''; return `<div class="hint">Entry ${fmtP(v.entry)} · now ${fmtP(v.px)} · <b class="${v.usd>=0?'up':'down'}">${pct(v.pct)} (${fmt(v.usd)})</b>${v.tp?' · TP '+fmtP(v.tp):''}${v.sl?' · SL '+fmtP(v.sl):''}${tw?(v.armed?' · <span class="ok">auto-exit armed</span>':(v.hit?' · exit fired ('+v.hit.toUpperCase()+')':'')):''}</div>`; })()}
       <div class="presets pctrow">${[25,50,100].map(p=>`<button class="pct ${p===lvPct?'on':''}" data-lpct="${p}">${p}%</button>`).join('')}</div>`}
       <button class="mini" id="lvQuoteBtn" style="width:100%;margin:8px 0" ${lvBusy?'disabled':''}>${lvBusy?'Working…':'Get Jupiter quote'}</button>
       <div id="lvQuoteBox" class="hint">${lvQuote ? lvQuote.html : 'Quotes come from Jupiter, the Solana aggregator. Slippage 1.5%.'}</div>
-      <label class="remember" style="margin-top:8px"><input type="checkbox" id="lvSend" ${window.__msSendForReal?'checked':''}> <span>Send for real <em>otherwise Phantom signs and nothing is sent (test mode)</em></span></label>
-      <button class="${lvSide==='buy'?'primary':'danger'}" id="lvGo" style="width:100%;margin-top:8px" ${!lvQuote||lvBusy?'disabled':''}>${window.__msSendForReal ? (lvSide==='buy'?'Buy':'Sell')+' with Phantom' : 'Sign with Phantom (test, not sent)'}</button>
+      ${tw ? '' : `<label class="remember" style="margin-top:8px"><input type="checkbox" id="lvSend" ${window.__msSendForReal?'checked':''}> <span>Send for real <em>otherwise Phantom signs and nothing is sent (test mode)</em></span></label>`}
+      <button class="${lvSide==='buy'?'primary':'danger'}" id="lvGo" style="width:100%;margin-top:8px" ${!lvQuote||lvBusy?'disabled':''}>${tw ? (lvSide==='buy'?'Buy now':'Sell now') + ' · executes on the server' : window.__msSendForReal ? (lvSide==='buy'?'Buy':'Sell')+' with Phantom' : 'Sign with Phantom (test, not sent)'}</button>
       <div id="lvStatus" class="hint" style="margin-top:8px">${lvStatusHtml}</div>
-      <div class="hint" style="margin-top:8px">Live orders never touch the paper accounts or the leaderboard. Market cap, grade and alerts work the same.</div>
+      <div class="hint" style="margin-top:8px">${tw ? 'Real money in your MemeScreen wallet. No Phantom approval: the server signs, sends and confirms, then the position shows here and on the chart.' : 'Live orders never touch the paper accounts or the leaderboard. Market cap, grade and alerts work the same.'}</div>
     </div>`;
-  $('lvRefresh').onclick = async () => { await WAL.refresh(); renderDetail(); };
+  $('lvRefresh').onclick = async () => { await W.refresh(); renderDetail(); };
   const tpc = $('lvUseTP'), slc = $('lvUseSL'); if (tpc) { tpc.onchange = () => { lvUseTP = tpc.checked; $('lvTPin').disabled = !lvUseTP; }; $('lvTPin').onchange = () => { lvTP = Math.max(1, +$('lvTPin').value || 50); }; }
   if (slc) { slc.onchange = () => { lvUseSL = slc.checked; $('lvSLin').disabled = !lvUseSL; }; $('lvSLin').onchange = () => { lvSL = Math.min(99, Math.max(1, +$('lvSLin').value || 25)); }; }
   op.querySelectorAll('[data-ls]').forEach(b => b.onclick = () => { lvSide = b.dataset.ls; lvQuote = null; renderDetail(); });
   op.querySelectorAll('[data-lsol]').forEach(b => b.onclick = () => { lvSol = +b.dataset.lsol; lvQuote = null; renderDetail(); });
   op.querySelectorAll('[data-lpct]').forEach(b => b.onclick = () => { lvPct = +b.dataset.lpct; lvQuote = null; renderDetail(); });
   const cu = $('lvCustom'); if (cu) cu.onchange = () => { const v = +cu.value; if (v > 0) { lvSol = Math.round(v*1e4)/1e4; lvQuote = null; renderDetail(); } };
-  $('lvSend').onchange = e => { window.__msSendForReal = e.target.checked; if (e.target.checked && !confirm('Send for real: Phantom will broadcast the signed swap and real SOL moves. Continue?')) { window.__msSendForReal = false; } renderDetail(); };
+  if ($('lvSend')) $('lvSend').onchange = e => { window.__msSendForReal = e.target.checked; if (e.target.checked && !confirm('Send for real: Phantom will broadcast the signed swap and real SOL moves. Continue?')) { window.__msSendForReal = false; } renderDetail(); };
   $('lvQuoteBtn').onclick = async () => {
     lvBusy = true; lvStatusHtml = ''; renderDetail();
     try {
@@ -1018,11 +1045,22 @@ function renderLiveTicket(t, op){
   };
   $('lvGo').onclick = async () => {
     if (!lvQuote) return; const send = !!window.__msSendForReal;
+    if (tw) {   // MemeScreen wallet: the execution service quotes again, signs, sends and confirms; no Phantom step
+      lvBusy = true; lvStatusHtml = 'Sending to the execution service… (quote → sign → send → confirm, up to a minute)'; renderDetail();
+      try {
+        const r = await TW.order(lvSide === 'buy' ? { mint: t.addr, side: 'buy', solIn: lvSol, tp: lvUseTP ? lvTP : null, sl: lvUseSL ? lvSL : null, symbol: t.sym } : { mint: t.addr, side: 'sell', pct: lvPct, symbol: t.sym });
+        lvBusy = false; lvQuote = null;
+        lvStatusHtml = `Confirmed <a href="${TW.explorer(r.sig)}" target="_blank" rel="noopener">${esc(r.sig.slice(0, 8))}…</a>${lvSide === 'buy' ? ' · ' + (+r.out).toLocaleString(undefined, { maximumFractionDigits: 2 }) + ' ' + esc(t.sym) + ((lvUseTP || lvUseSL) ? ' · exits armed on the server' : '') : ' · ◎' + (+r.out).toFixed(4) + ' received'}`;
+        toast('Confirmed on-chain'); fireAlert?.('live', t, 'Auto ' + lvSide + ' ' + t.sym + (lvSide === 'buy' ? ' ◎' + lvSol : ' ' + lvPct + '%') + ' confirmed');
+        renderDetail(); try { applyDrawings(true); } catch {} renderPositions();
+      } catch (e) { lvBusy = false; lvStatusHtml = esc(e.message || String(e)); renderDetail(); toast('Order: ' + (e.message || e)); }
+      return;
+    }
     if (send && lvSide === 'buy' && bal < lvSol + FEE_RESERVE) return toast('Not enough SOL in the wallet for a real order');
     lvBusy = true; renderDetail(); const st = () => $('lvStatus');
     try {
       if (st()) st().textContent = 'Building the swap with Jupiter…';
-      const tx = await LIVE.buildSwap(lvQuote.q, WAL.address());
+      const tx = await LIVE.buildSwap(lvQuote.q, W.address());
       if (st()) st().textContent = send ? 'Phantom is asking you to approve…' : 'Phantom is asking you to sign (test mode, nothing is sent)…';
       const r = await LIVE.signWithPhantom(tx, { send, backendRpc: (m, p) => backend.rpc(m, p) });
       lvBusy = false; lvQuote = null; renderDetail();
@@ -1031,14 +1069,14 @@ function renderLiveTicket(t, op){
         toast('Sent · ' + r.signature.slice(0, 8) + '… waiting for confirmation'); lvStatusHtml = `Sent ${link}. Waiting for the network to confirm…`; $('lvStatus').innerHTML = lvStatusHtml;
         const c = await LIVE.confirm(r.signature, (m, p) => backend.rpc(m, p));
         if (c.ok) { lvStatusHtml = `Confirmed (${esc(c.status)}) ${link}. The wallet card updates in a moment.`; toast('Confirmed on-chain'); fireAlert?.('live', t, 'Live ' + lvSide + ' ' + t.sym + (lvSide==='buy' ? ' ◎' + lvSol : ' ' + lvPct + '%') + ' confirmed');
-          const spx = WAL.solPrice() || solUsd || 0;
+          const spx = W.solPrice() || solUsd || 0;
           if (lvSide === 'buy' && lvOut > 0) { const cost = lvSol * spx, entry = cost / lvOut; const ex = liveFor(t.addr);
             if (ex) { ex.cost += cost; ex.qty += lvOut; ex.entry = ex.cost / ex.qty; ex.hit = null; } else livePos.push({ addr: t.addr, sym: t.sym, entry, qty: lvOut, cost, solIn: lvSol, opened: Date.now(), sig: r.signature, tp: null, sl: null, hit: null });
             const p = liveFor(t.addr); if (lvUseTP) p.tp = p.entry * (1 + lvTP/100); if (lvUseSL) p.sl = p.entry * (1 - lvSL/100); saveLive(); }
           else if (lvSide === 'sell') { const p = liveFor(t.addr); if (p) { if (lvPct >= 100) livePos = livePos.filter(x => x !== p); else { p.qty *= (1 - lvPct/100); p.cost *= (1 - lvPct/100); } saveLive(); } }
           applyDrawings(true); renderPositions(); }
         else { lvStatusHtml = `Sent ${link} but ${c.status === 'failed' ? 'it FAILED on-chain: ' + esc(c.detail) + ' — nothing moved except the fee' : 'not confirmed: ' + esc(c.detail) + ' — check Solscan; if it is not there, nothing moved. Approve in Phantom within a minute or the transaction expires.'}`; toast('Order ' + c.status); }
-        $('lvStatus').innerHTML = lvStatusHtml; WAL.refresh(); setTimeout(() => WAL.refresh(), 15000);
+        $('lvStatus').innerHTML = lvStatusHtml; W.refresh(); setTimeout(() => W.refresh(), 15000);
       }
       else { toast('Signed in test mode — not sent'); lvStatusHtml = esc('Phantom signed the real transaction. It was not broadcast, so nothing moved. Tick "Send for real" to trade.'); $('lvStatus').innerHTML = lvStatusHtml; fireAlert?.('live', t, 'Test ' + lvSide + ' ' + t.sym + (lvSide==='buy' ? ' ◎' + lvSol : ' ' + lvPct + '%') + ' (not sent)'); }
     } catch (e) { lvBusy = false; lvStatusHtml = esc(e.message || String(e)); renderDetail(); toast('Phantom: ' + (e.message || e)); }
@@ -1049,9 +1087,12 @@ function renderPositions(){
   const el = $('bottomPanel'); if (!el) return; el.scrollTop = el.scrollTop;
   if (liveMode && bottomTab === 'positions') {
     // holdings from the chain, plus any live position the app remembers that the chain read missed (token list unavailable)
-    const hs = [...WAL.list()]; for (const lp of livePos) if (!hs.some(h => h.mint === lp.addr)) { const t = tokens.find(x => x.addr === lp.addr); hs.push({ mint: lp.addr, sym: lp.sym, name: 'from app memory · wallet list unavailable', amount: lp.qty, price: t?.price || 0, value: (t?.price || 0) * lp.qty, g: t?.grade?.g || null, token: t || null }); }
-    const pnlCell = h => { const p = liveFor(h.mint); if (!p) return '<td class="num"><span class="hint">—</span></td><td><span class="hint">—</span></td>'; const r = livePnl(p); return `<td class="num"><b class="${r.usd>=0?'up':'down'}">${pct(r.pct)}</b><div class="hint">entry ${fmtP(p.entry)}</div></td><td class="num hint">${p.tp?'TP '+fmtP(p.tp):''}${p.tp&&p.sl?'<br>':''}${p.sl?'SL '+fmtP(p.sl):''}${!p.tp&&!p.sl?'—':''}</td>`; };
+    const hs = [...LW().list()];
+    if (liveSrc === 'tw') { for (const p of TW.positionsList()) if (!hs.some(h => h.mint === p.mint)) { const t = tokens.find(x => x.addr === p.mint); hs.push({ mint: p.mint, sym: p.symbol || p.mint.slice(0, 4) + '…', name: 'position on the server', amount: p.qty, price: p.price || t?.price || 0, value: p.value || 0, g: t?.grade?.g || null, token: t || null }); } }
+    else for (const lp of livePos) if (!hs.some(h => h.mint === lp.addr)) { const t = tokens.find(x => x.addr === lp.addr); hs.push({ mint: lp.addr, sym: lp.sym, name: 'from app memory · wallet list unavailable', amount: lp.qty, price: t?.price || 0, value: (t?.price || 0) * lp.qty, g: t?.grade?.g || null, token: t || null }); }
+    const pnlCell = h => { const v = livePosView(h.mint); if (!v) return '<td class="num"><span class="hint">—</span></td><td><span class="hint">—</span></td>'; return `<td class="num"><b class="${v.usd>=0?'up':'down'}">${pct(v.pct)}</b><div class="hint">entry ${fmtP(v.entry)}</div></td><td class="num hint">${v.tp?'TP '+fmtP(v.tp):''}${v.tp&&v.sl?'<br>':''}${v.sl?'SL '+fmtP(v.sl):''}${!v.tp&&!v.sl?'—':''}${liveSrc==='tw'?(v.armed?'<br><span class="ok">auto</span>':(v.hit?'<br>fired '+v.hit.toUpperCase():''))+` <button class="mini" data-lexit="${h.mint}" title="Change take profit / stop loss">Edit</button>`:''}</td>`; };
     el.innerHTML = hs.length ? `<table class="btbl"><thead><tr><th>Token</th><th class="num">Amount</th><th class="num">Price</th><th class="num">Value</th><th class="num">P&L</th><th class="num">Exits</th><th>Grade</th><th></th></tr></thead><tbody>${hs.map((h,i)=>`<tr class="pos"><td class="sym">${esc(h.sym)}</td><td class="num">${h.amount.toLocaleString(undefined,{maximumFractionDigits:2})}</td><td class="num">${h.price?fmtP(h.price):'—'}</td><td class="num">${h.price?fmt(h.value):'—'}</td>${pnlCell(h)}<td>${h.g?gBadge(h.g):''}</td><td>${h.token?`<button class="mini" data-lsell="${i}">Sell</button>`:''}</td></tr>`).join('')}</tbody></table><div class="hint" style="padding:6px 10px">Real holdings in Phantom, read from the chain. Sell opens the live ticket.</div>` : '<div class="empty">No tokens in this wallet yet. Buy one from the ticket, or deposit SOL first (+ Deposit).</div>';
+    el.querySelectorAll('[data-lexit]').forEach(b => b.onclick = async () => { const mint = b.dataset.lexit; const v = livePosView(mint); const tp = prompt('Take profit, % above entry (blank = none)', v?.tp ? Math.round((v.tp / v.entry - 1) * 100) : ''); if (tp === null) return; const sl = prompt('Stop loss, % below entry (blank = none)', v?.sl ? Math.round((1 - v.sl / v.entry) * 100) : ''); if (sl === null) return; try { await TW.setExits({ mint, tp: tp === '' ? null : +tp, sl: sl === '' ? null : +sl }); toast('Exits updated on the server'); } catch (e) { toast('Exits: ' + (e.message || e)); } });
     el.querySelectorAll('[data-lsell]').forEach(b => b.onclick = () => { const h = hs[+b.dataset.lsell]; if (!tokens.find(x => x.addr === h.token.addr)) { h.token.grade = grade(h.token); tokens.push(h.token); } selected = tokens.find(x => x.addr === h.token.addr) || h.token; lvSide = 'sell'; lvQuote = null; renderDetail(); document.querySelector('.m-segs [data-seg=chart]')?.click(); });
     return;
   }
@@ -1129,11 +1170,12 @@ $('authform').onsubmit = async e => {
   } catch (err) { $('autherr').textContent = err.message; } finally { btn.disabled = false; btn.textContent = label; }
 };
 $('guest').onclick = enterGuest;
-function logout(){ const was = signedIn(); clearTimeout(syncTimer); WAL.disconnect(false); liveMode = false; dirtyAcct = dirtyProfile = false; if (was) backend.logout().catch(()=>{}); else session.clear(); TOKEN = null; ME = null; guest = false; localStorage.removeItem('ms_guest'); positions=[]; trades=[]; orders=[]; selected=null; announce('logout'); notifyHost({ type:'ms-signed-out' }); showLanding(); setMode('login'); }
+function logout(){ const was = signedIn(); clearTimeout(syncTimer); WAL.disconnect(false); TW.forget(); liveMode = false; liveSrc = 'phantom'; dirtyAcct = dirtyProfile = false; if (was) backend.logout().catch(()=>{}); else session.clear(); TOKEN = null; ME = null; guest = false; localStorage.removeItem('ms_guest'); positions=[]; trades=[]; orders=[]; selected=null; announce('logout'); notifyHost({ type:'ms-signed-out' }); showLanding(); setMode('login'); }
 $('logout').onclick = logout;
 // ---------- broker picker ----------
 const BROKERS = [
   { name:'Paper Trading', desc:'Simulator by MemeScreen', paper:true, rating:'' },
+  { name:'MemeScreen wallet', desc:'Auto trading · server-held wallet', tw:true, rating:'' },
   { name:'Phantom', desc:'Solana wallet', rating:'4.6' }, { name:'Coinbase', desc:'Exchange', rating:'4.3' },
   { name:'Kraken', desc:'Exchange', rating:'4.2' }, { name:'OKX', desc:'Exchange', rating:'4.5' },
   { name:'Jupiter', desc:'Solana DEX', rating:'4.5' }, { name:'Axiom', desc:'Solana terminal', rating:'4.4' },
@@ -1144,10 +1186,18 @@ const BROKERS = [
 // Real brokers are listed but not live yet: they render greyed out, and a connection attempt runs and then fails cleanly.
 const brokerState = {};   // name → 'connecting' | 'failed'
 function openBrokerModal(){ const g=$('brokerGrid'); if(!g) return;
-  const draw=()=>{ g.innerHTML = BROKERS.map(b=>{ const st=brokerState[b.name]; const ph = b.name==='Phantom' ? WAL.brokerCard() : null; const live = b.paper || !!ph; return `<button type="button" class="brokercard ${b.paper||ph?.state==='connected'?'active':live?'ready':'soon'} ${st||''}" data-b="${b.name}" ${st==='connecting'?'disabled':''}>
-    <div class="brokericon">${b.paper||ph?.state==='connected'?'<span class="bdot ok"></span>':(b.name[0])}</div><b>${b.name}</b><div class="hint">${ph ? 'Solana wallet · read-only' : b.desc}</div>
+  const draw=()=>{ g.innerHTML = BROKERS.map(b=>{ const st=brokerState[b.name]; const ph = b.name==='Phantom' ? WAL.brokerCard() : b.tw ? TW.brokerCard() : null; const live = b.paper || (!!ph && ph.state !== 'soon'); return `<button type="button" class="brokercard ${b.paper||ph?.state==='connected'?'active':live?'ready':'soon'} ${st||''}" data-b="${b.name}" ${st==='connecting'?'disabled':''}>
+    <div class="brokericon">${b.paper||ph?.state==='connected'?'<span class="bdot ok"></span>':(b.name[0])}</div><b>${b.name}</b><div class="hint">${ph ? (b.tw ? 'Stop-loss and take-profit sell by themselves' : 'Solana wallet · read-only') : b.desc}</div>
     ${b.paper?'<div class="bstat ok">Connected</div>': st==='connecting'?'<div class="bstat"><span class="spin"></span> Connecting…</div>': st==='failed'?'<div class="bstat bad">Connection failed</div>': ph ? `<div class="bstat ${ph.state==='connected'?'ok':''}">${ph.label}</div>` : `<div class="bstat">★ ${b.rating} · Connect</div>`}</button>`; }).join('');
-    g.querySelectorAll('.brokercard').forEach(c=>c.onclick=async ()=>{ const n=c.dataset.b; if(c.classList.contains('active') && n!=='Phantom'){ toast('Paper trading is always connected'); return; }
+    g.querySelectorAll('.brokercard').forEach(c=>c.onclick=async ()=>{ const n=c.dataset.b; if(c.classList.contains('active') && n!=='Phantom' && n!=='MemeScreen wallet'){ toast('Paper trading is always connected'); return; }
+      if(n==='MemeScreen wallet'){
+        if (!TW.configured()) { $('brokerMsg').innerHTML='<span class="warn">Set the execution service URL first: Settings → Trading wallet.</span>'; return; }
+        if (!signedIn()) { $('brokerMsg').textContent='Sign in to MemeScreen first (the wallet belongs to your account).'; return; }
+        if (TW.connected()) { setLiveMode(true,'tw'); $('brokerModal').style.display='none'; show('trade'); return; }
+        brokerState[n]='connecting'; draw(); $('brokerMsg').textContent='Opening your MemeScreen wallet…';
+        try { await TW.create(); store.set('ms_tw_'+userKey(), 1); brokerState[n]=null; draw(); setLiveMode(true,'tw'); $('brokerModal').style.display='none'; show('trade'); if (TW.solBalance() < 0.013) openTwModal('fund'); }
+        catch(e){ brokerState[n]=null; draw(); $('brokerMsg').innerHTML='<span class="warn">'+esc(e.message||e)+'</span>'; }
+        return; }
       if(n==='Phantom'){
         if (WAL.connected()) { await WAL.disconnect(true); if (liveMode) setLiveMode(false); draw(); $('brokerMsg').textContent='Phantom disconnected. Paper trading is active.'; return; }
         brokerState[n]='connecting'; draw(); $('brokerMsg').textContent='Waiting for Phantom…';
@@ -1158,6 +1208,8 @@ function openBrokerModal(){ const g=$('brokerGrid'); if(!g) return;
   draw();
   if (WAL.connected()) { $('brokerMsg').innerHTML = `Phantom <b>${esc(WAL.short(WAL.address()))}</b> is connected${liveMode?' and active':''}. <button class="mini primary" id="bkSwitch">${liveMode?'Trading live':'Switch to live wallet'}</button> <button class="mini" id="bkPaper" ${liveMode?'':'disabled'}>Back to paper</button> <button class="mini" id="bkDisc">Disconnect Phantom</button>`;
     $('bkSwitch').onclick=()=>{ setLiveMode(true); $('brokerModal').style.display='none'; show('trade'); }; $('bkPaper').onclick=()=>{ setLiveMode(false); openBrokerModal(); }; $('bkDisc').onclick=async ()=>{ await WAL.disconnect(true); if (liveMode) setLiveMode(false); draw(); $('brokerMsg').textContent='Phantom disconnected. Paper trading is active.'; }; }
+  else if (TW.connected()) { $('brokerMsg').innerHTML = `MemeScreen wallet <b>${esc(TW.short(TW.address()))}</b> is open · ◎${TW.solBalance().toFixed(4)}${liveMode&&liveSrc==='tw'?' · active':''}. <button class="mini primary" id="bkTw">${liveMode&&liveSrc==='tw'?'Trading (auto)':'Use it'}</button> <button class="mini" id="bkFund">Fund</button> <button class="mini" id="bkWd">Withdraw</button> <button class="mini" id="bkPaper2" ${liveMode?'':'disabled'}>Back to paper</button>`;
+    $('bkTw').onclick=()=>{ setLiveMode(true,'tw'); $('brokerModal').style.display='none'; show('trade'); }; $('bkFund').onclick=()=>{ $('brokerModal').style.display='none'; openTwModal('fund'); }; $('bkWd').onclick=()=>{ $('brokerModal').style.display='none'; openTwModal('withdraw'); }; $('bkPaper2').onclick=()=>{ setLiveMode(false); openBrokerModal(); }; }
   else $('brokerMsg').textContent='Pick a broker to connect. Paper Trading is always available.';
   $('brokerModal').style.display='flex';
 }
@@ -1188,7 +1240,7 @@ async function enterApp(){
       catch (err) { if (isAuthError(err)) { toast('Session expired — sign in again'); return logout(); } await new Promise(r=>setTimeout(r, 800)); }
     }
     ME = ME || session.get()?.user || { email:'(offline)', nickname:'you' };
-    loadPrefs(); loadLive(); loadAccounts();
+    loadPrefs(); loadLive(); loadAccounts(); if (TW.configured() && store.get('ms_tw_'+userKey())) TW.create().catch(()=>{});
     if (online) { try { await pullCloud(); } catch (e) { if (isAuthError(e)) return logout(); loadActiveState(); setSync('offline — using this browser\'s copy'); } }
     else { loadActiveState(); setSync('offline — using this browser\'s copy'); }
   } else {

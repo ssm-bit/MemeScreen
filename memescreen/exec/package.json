@@ -1,0 +1,18 @@
+{
+  "name": "memescreen-exec",
+  "version": "1.0.0",
+  "description": "MemeScreen execution service: per-user trading wallets, server-side Jupiter orders, 24/7 stop-loss / take-profit watcher",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "test": "node --test --test-concurrency=1 test/*.test.js"
+  },
+  "engines": { "node": ">=22.5" },
+  "dependencies": {
+    "@solana/web3.js": "^1.95.8",
+    "express": "^4.21.2",
+    "pg": "^8.13.1"
+  }
+}

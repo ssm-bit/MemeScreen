@@ -38,3 +38,7 @@ Back4App. The Application ID and JavaScript key are in `memescreen/src/config.js
 
 - Claude Code on the web (claude.ai/code): sign in with GitHub, pick this repo, describe the change. It pushes a branch; merge the pull request on GitHub, then `git pull`.
 - Cowork or Claude Code on your laptop: connect your clone as the folder. Claude edits files there; you commit and push.
+
+## Phase 2: the MemeScreen trading wallet (memescreen/exec)
+
+`memescreen/exec` is the execution service: per-user wallets (keys encrypted on the server), server-side Jupiter orders, and a 24/7 watcher that sells on stop-loss / take-profit. Read `memescreen/exec/README.md` for running it locally (`npm install`, copy `.env.example` to `.env`, `npm run dev`) and for the Railway deploy. The app finds it through Settings → Trading wallet (or `execUrl` in `src/config.js`). Never commit `.env`, `MASTER_KEY` or the Back4App master key.

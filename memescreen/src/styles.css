@@ -609,3 +609,7 @@ label.scr-name{display:block;font-size:12px;color:var(--t2);margin-bottom:10px}l
 .ticket.live .ordtab.on{color:var(--brand)}
 
 .envbanner{background:#2b2410;color:#f5c542;border-bottom:1px solid #4a3d14;padding:8px 14px;font-size:12px;line-height:1.4} .envbanner a{color:#f5c542;text-decoration:underline} .envbanner button{float:right;margin-left:8px}
+
+/* trading wallet modal fields */
+.modalbox label.field{display:block;text-align:left;font-size:12px;color:var(--t2);margin:10px 0}.modalbox label.field input{width:100%;margin-top:4px;padding:9px 10px;font:13px ui-monospace,Menlo,Consolas,monospace}
+#twUrl{padding:8px 10px;font:13px ui-monospace,Menlo,Consolas,monospace}

@@ -23,5 +23,8 @@ export default {
   rpcUrl: '',
   wsUrl: '',
   jupiterKey: '',                        // optional: a free key from portal.jup.ag raises the Jupiter quote rate limit for live orders
-  expressUrl: '',                        // '' = same machine that served the page, port 4000
+  expressUrl: '',
+  // MemeScreen execution service (memescreen/exec): the trading wallet with server-side orders and 24/7 auto exits.
+  // Leave '' and paste the URL in the app (Settings → Trading wallet), or set it here for everyone, e.g. 'https://ms-exec.up.railway.app'.
+  execUrl: '',                        // '' = same machine that served the page, port 4000
 };

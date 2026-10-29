@@ -26,3 +26,12 @@ memescreen/server/.env
 Thumbs.db
 .vscode/
 *.log
+
+# execution service (Phase 2): secrets and local database
+memescreen/exec/.env
+memescreen/exec/node_modules/
+memescreen/exec/*.sqlite
+memescreen/exec/*.sqlite-*
+
+# Claude working files (not part of the app)
+Claude outputs/
